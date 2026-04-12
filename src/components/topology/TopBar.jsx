@@ -18,6 +18,8 @@ import {
   ChevronDown,
   Download,
   Settings2,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 function HeaderBtn({ onClick, title, children, variant = 'default', className = '' }) {
@@ -119,6 +121,7 @@ export default function TopBar({
   onExportSvg,
   onExportBrief,
   onExportConfig,
+  onOpenExportHub,
   onShare,
   onValidate,
   onAutoLayout,
@@ -127,6 +130,33 @@ export default function TopBar({
   focusMode,
   onToggleFocus,
 }) {
+  const [lightMode, setLightMode] = useState(() => {
+    try {
+      return document.documentElement.classList.contains('light');
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (lightMode) {
+        document.documentElement.classList.add('light');
+        localStorage.setItem('topologai_theme', 'light');
+      } else {
+        document.documentElement.classList.remove('light');
+        localStorage.setItem('topologai_theme', 'dark');
+      }
+    } catch { /* ignore */ }
+  }, [lightMode]);
+
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem('topologai_theme');
+      if (t === 'light') setLightMode(true);
+    } catch { /* ignore */ }
+  }, []);
+
   return (
     <header className="flex-shrink-0 z-20 flex h-12 items-center justify-between gap-3 border-b border-border/60 bg-card/95 px-4 backdrop-blur-md">
       {/* Left: Logo */}
@@ -157,6 +187,9 @@ export default function TopBar({
         <DropdownMenu trigger={<><Download className="h-3.5 w-3.5" /><span className="hidden sm:inline">Export</span></>}>
           {(close) => (
             <>
+              {onOpenExportHub && (
+                <DropdownItem onClick={onOpenExportHub} icon={Download} close={close}>Export hub (7 options)</DropdownItem>
+              )}
               <DropdownItem onClick={onExportJson} icon={FileJson} close={close}>Export JSON</DropdownItem>
               <DropdownItem onClick={onExportSvg} icon={FileImage} close={close}>Export SVG</DropdownItem>
               <DropdownItem onClick={onExportBrief} icon={FileText} close={close}>Design Brief</DropdownItem>
@@ -189,6 +222,14 @@ export default function TopBar({
         <HeaderBtn onClick={onToggleFocus} title={focusMode ? 'Exit focus mode' : 'Focus canvas'} variant={focusMode ? 'primary' : 'default'}>
           <Focus className="h-3.5 w-3.5" />
           <span className="hidden lg:inline">Focus</span>
+        </HeaderBtn>
+        <HeaderBtn
+          onClick={() => setLightMode((v) => !v)}
+          title={lightMode ? 'Dark mode' : 'Light mode (v3)'}
+          variant="default"
+        >
+          {lightMode ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+          <span className="hidden lg:inline">{lightMode ? 'Dark' : 'Light'}</span>
         </HeaderBtn>
       </nav>
     </header>

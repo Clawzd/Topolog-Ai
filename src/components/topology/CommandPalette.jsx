@@ -1,6 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Command } from 'cmdk';
-import { Search, LayoutTemplate, Network, Shield, Activity, Zap } from 'lucide-react';
+import { Search, LayoutTemplate, Network, Shield, Activity, Zap, Box } from 'lucide-react';
+
+/**
+ * @typedef {{ id: string, label: string, keywords?: string, icon?: import('lucide-react').LucideIcon, run?: () => void }} PaletteExtraItem
+ */
 
 export default function CommandPalette({
   open,
@@ -15,6 +19,8 @@ export default function CommandPalette({
   onToggleApAdvisor,
   onExportBrief,
   onSave,
+  /** @type {PaletteExtraItem[] | undefined} */
+  extraItems = [],
 }) {
   const [q, setQ] = useState('');
 
@@ -23,7 +29,7 @@ export default function CommandPalette({
   }, [open]);
 
   const items = useMemo(() => {
-    const all = [
+    const base = [
       { id: 'tpl', label: 'Browse templates', keywords: 'gallery start', icon: LayoutTemplate, run: onTemplates },
       { id: 'vlan', label: 'VLAN manager', keywords: 'segment', icon: Network, run: onVlanManager },
       { id: 'layout', label: 'Auto layout', keywords: 'arrange', icon: Network, run: onAutoLayout },
@@ -35,15 +41,23 @@ export default function CommandPalette({
       { id: 'brief', label: 'Export design brief', keywords: 'markdown', icon: Network, run: onExportBrief },
       { id: 'save', label: 'Save to browser', keywords: 'persist', icon: Network, run: onSave },
     ];
+    const dyn = (extraItems || []).map((x) => ({
+      id: x.id,
+      label: x.label,
+      keywords: x.keywords || '',
+      icon: x.icon || Box,
+      run: x.run,
+    }));
+    const all = [...base, ...dyn];
     const qq = q.trim().toLowerCase();
     if (!qq) return all;
     return all.filter(
       (x) =>
         x.label.toLowerCase().includes(qq) ||
-        x.keywords.includes(qq) ||
-        x.id.includes(qq)
+        (x.keywords && x.keywords.toLowerCase().includes(qq)) ||
+        x.id.toLowerCase().includes(qq)
     );
-  }, [q, onTemplates, onVlanManager, onAutoLayout, onToggleHeatmap, onToggleTraffic, onToggleCompliance, onTogglePower, onToggleApAdvisor, onExportBrief, onSave]);
+  }, [q, onTemplates, onVlanManager, onAutoLayout, onToggleHeatmap, onToggleTraffic, onToggleCompliance, onTogglePower, onToggleApAdvisor, onExportBrief, onSave, extraItems]);
 
   if (!open) return null;
 
@@ -64,7 +78,7 @@ export default function CommandPalette({
           <Command.Input
             value={q}
             onValueChange={setQ}
-            placeholder="Search actions…"
+            placeholder="Search devices, rooms, templates, actions…"
             className="flex-1 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
           />
           <kbd className="text-[10px] text-muted-foreground font-mono hidden sm:inline">Esc</kbd>
@@ -72,7 +86,7 @@ export default function CommandPalette({
         <Command.List className="max-h-72 overflow-y-auto p-1">
           <Command.Empty className="py-6 text-center text-xs text-muted-foreground">No matches.</Command.Empty>
           {items.map((item) => {
-            const Icon = item.icon;
+            const Icon = item.icon || Search;
             return (
               <Command.Item
                 key={item.id}

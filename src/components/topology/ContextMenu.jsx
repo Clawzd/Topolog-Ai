@@ -1,5 +1,5 @@
 ﻿import { useEffect, useRef } from 'react';
-import { Trash2, Copy, Edit3, Link2, Square, Unlink, ZoomIn, RotateCcw, Layers } from 'lucide-react';
+import { Trash2, Copy, Edit3, Link2, Square, Unlink, ZoomIn, RotateCcw, Layers, Zap } from 'lucide-react';
 
 /** @param {any} _props */
 function EmptyIcon(_props) {
@@ -47,6 +47,7 @@ export default function ContextMenu({ x, y, target, onAction, onClose }) {
     if (target?.type === 'node') return (
       <>
         <Item icon={Edit3} label="Rename" action="rename" />
+        <Item icon={Zap} label="Simulate failure…" action="simulate_failure" />
         <Item icon={Link2} label="Connect from here" action="connect_from" />
         <Item icon={Copy} label="Duplicate" action="duplicate" />
         <Item icon={EmptyIcon} label="" divider />
@@ -78,6 +79,11 @@ export default function ContextMenu({ x, y, target, onAction, onClose }) {
         <Item icon={Trash2} label="Delete VLAN zone" action="delete" danger />
       </>
     );
+    if (target?.type === 'powerZone') return (
+      <>
+        <Item icon={Trash2} label="Delete power zone" action="delete" danger />
+      </>
+    );
     // Canvas
     return (
       <>
@@ -85,6 +91,7 @@ export default function ContextMenu({ x, y, target, onAction, onClose }) {
         <Item icon={RotateCcw} label="Reset view" action="reset_view" />
         <Item icon={EmptyIcon} label="" divider />
         <Item icon={Square} label="Draw room here" action="draw_room" />
+        <Item icon={Square} label="Room from barrier bounds" action="suggest_room_from_barriers" />
         <Item icon={Link2} label="Connect mode" action="connect_mode" />
         <Item icon={EmptyIcon} label="" divider />
         <Item icon={Trash2} label="Clear canvas" action="clear" danger />
@@ -107,6 +114,7 @@ export default function ContextMenu({ x, y, target, onAction, onClose }) {
               : target.type === 'room' ? target.item?.label || 'Room'
               : target.type === 'barrier' ? target.item?.label || 'Barrier'
               : target.type === 'vlanZone' ? target.item?.label || 'VLAN zone'
+              : target.type === 'powerZone' ? target.item?.label || 'Power zone'
               : 'Canvas'}
           </span>
         </div>

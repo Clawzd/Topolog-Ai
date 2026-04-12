@@ -128,12 +128,13 @@ export const DEVICE_TYPES = {
     },
   };
 
+  /** v3 §63–66 Visual identity (Ethernet / WiFi / Fiber / WAN / VPN) */
   export const LINK_TYPES = {
-    ethernet: { label: 'Ethernet', color: '#06b6d4', dash: false, speed: '1Gbps' },
-    fiber: { label: 'Fiber', color: '#8b5cf6', dash: false, speed: '10Gbps' },
-    wifi: { label: 'WiFi', color: '#f59e0b', dash: true, speed: '300Mbps' },
-    wan: { label: 'WAN', color: '#64748b', dash: true, speed: 'Variable' },
-    vpn: { label: 'VPN Tunnel', color: '#10b981', dash: true, speed: 'Variable' },
+    ethernet: { label: 'Ethernet', color: '#94A3B8', dash: false, speed: '1Gbps', widthBase: 2 },
+    fiber: { label: 'Fiber', color: '#8B5CF6', dash: false, speed: '10Gbps', widthBase: 2.25, glow: true },
+    wifi: { label: 'WiFi', color: '#06B6D4', dash: true, speed: '300Mbps', widthBase: 2 },
+    wan: { label: 'WAN', color: '#F97316', dash: false, speed: 'Variable', widthBase: 2 },
+    vpn: { label: 'VPN Tunnel', color: '#A855F7', dash: true, speed: 'Variable', widthBase: 2 },
   };
 
   // Mock AI topology responses

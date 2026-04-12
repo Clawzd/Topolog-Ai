@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -12,6 +12,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { LINK_TYPES } from '../../lib/topologyData';
+import { TC } from '../../lib/topologySvgTheme';
 import { validateTopology } from '../../lib/networkArtifacts';
 import HistoryPanel from './HistoryPanel';
 
@@ -87,7 +88,7 @@ function Sparkline({ values }) {
   }).join(' ');
   return (
     <svg width={w} height={h} className="overflow-visible">
-      <polyline fill="none" stroke="rgba(6,182,212,0.7)" strokeWidth="1.5" points={pts} />
+      <polyline fill="none" stroke={TC.primaryStr70} strokeWidth="1.5" points={pts} />
     </svg>
   );
 }
@@ -98,9 +99,9 @@ function ScoreRing({ value }) {
   const p = (value / 100) * c;
   return (
     <svg width="72" height="72" viewBox="0 0 72 72" className="flex-shrink-0">
-      <circle cx="36" cy="36" r={r} fill="none" stroke="rgba(55,65,81,0.6)" strokeWidth="6" />
+      <circle cx="36" cy="36" r={r} fill="none" stroke={TC.borderSoft} strokeWidth="6" />
       <circle
-        cx="36" cy="36" r={r} fill="none" stroke="rgba(6,182,212,0.9)" strokeWidth="6"
+        cx="36" cy="36" r={r} fill="none" stroke={TC.primaryStr90} strokeWidth="6"
         strokeDasharray={`${p} ${c}`} strokeLinecap="round" transform="rotate(-90 36 36)"
       />
       <text x="36" y="40" textAnchor="middle" fontSize="16" fontWeight="700" fill="currentColor" className="text-foreground">
@@ -130,6 +131,8 @@ export default function NetworkInsightsPanel({
   onExportConfig,
   onShare,
   onClose,
+  pathTracePath = null,
+  generateAnimKey = 0,
 }) {
   const insights = buildInsights(nodes, links, vlans);
   const validation = validateTopology({ nodes, links, vlans });
@@ -176,6 +179,31 @@ export default function NetworkInsightsPanel({
   const overall = smartSnapshot?.overallScore ?? validation.score;
   const confidence = Math.min(96, Math.max(52, overall + Math.round((mergedFindings.length % 5) * 3)));
 
+  const [displayOverall, setDisplayOverall] = useState(overall);
+  useEffect(() => {
+    setDisplayOverall(overall);
+  }, [overall]);
+
+  useEffect(() => {
+    if (!generateAnimKey) return undefined;
+    let start = performance.now();
+    let frame;
+    const tick = (t) => {
+      const p = Math.min(1, (t - start) / 520);
+      const eased = 1 - (1 - p) ** 2;
+      setDisplayOverall(Math.round(eased * overall));
+      if (p < 1) frame = requestAnimationFrame(tick);
+    };
+    setDisplayOverall(0);
+    start = performance.now();
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [generateAnimKey, overall]);
+
+  const coverageTier = scores.coverage >= 72 ? 'High' : scores.coverage >= 45 ? 'Medium' : 'Low';
+  const costTier = mergedFindings.length < 4 ? 'Low' : mergedFindings.length < 10 ? 'Medium' : 'High';
+  const redundancyTier = scores.resilience >= 68 ? 'High' : scores.resilience >= 42 ? 'Medium' : 'Low';
+
   const bar = (label, v) => (
     <div key={label} className="space-y-0.5">
       <div className="flex justify-between text-[9px] text-muted-foreground">
@@ -215,14 +243,27 @@ export default function NetworkInsightsPanel({
 
       <div className="overflow-y-auto flex-1 min-h-0 p-4 space-y-4">
         <div className="grid gap-3 sm:grid-cols-[auto,1fr]">
-          <ScoreRing value={overall} />
+          <ScoreRing value={displayOverall} />
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Confidence</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+              <span
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                  confidence >= 80
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : confidence >= 50
+                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+                      : 'border-rose-500/30 bg-rose-500/10 text-rose-200'
+                }`}
+              >
                 <Sparkles className="w-3 h-3" /> {confidence}%
               </span>
             </div>
+            <p className="text-[9px] text-muted-foreground leading-snug">
+              Coverage: <span className="text-foreground/90">{coverageTier}</span>
+              {' · '}Cost: <span className="text-foreground/90">{costTier}</span>
+              {' · '}Redundancy: <span className="text-foreground/90">{redundancyTier}</span>
+            </p>
             {scoreDelta !== 0 && (
               <div className={`text-[10px] font-mono ${scoreDelta > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {scoreDelta > 0 ? '+' : ''}{scoreDelta} vs last edit
@@ -241,6 +282,32 @@ export default function NetworkInsightsPanel({
             </div>
           </div>
         </div>
+
+        {pathTracePath && pathTracePath.length > 1 && (
+          <div className="rounded-lg border border-cyan-500/25 bg-cyan-500/5 px-3 py-2.5">
+            <div className="text-[10px] font-semibold text-cyan-200 mb-1.5">Path trace</div>
+            <ol className="space-y-1 text-[10px] text-muted-foreground">
+              {pathTracePath.map((id, i) => {
+                const n = nodes.find((x) => x.id === id);
+                const prev = i > 0 ? nodes.find((x) => x.id === pathTracePath[i - 1]) : null;
+                const hopLabel = i === 0
+                  ? '—'
+                  : (prev?.type === 'switch' && n?.type === 'switch')
+                    ? '<1ms'
+                    : `${1 + (i % 3)}ms`;
+                return (
+                  <li key={`${id}-${i}`} className="flex justify-between gap-2">
+                    <span className="text-foreground/90">{i + 1}. {n?.label || id}</span>
+                    <span className="font-mono text-[9px]">{hopLabel}</span>
+                  </li>
+                );
+              })}
+            </ol>
+            <p className="mt-1.5 text-[9px] text-muted-foreground/80">
+              {pathTracePath.length - 1} hop{pathTracePath.length > 2 ? 's' : ''} · v3 spec 493 mock per-hop latency · total est. {(pathTracePath.length - 1) * 2}–{(pathTracePath.length - 1) * 6} ms
+            </p>
+          </div>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
@@ -351,7 +418,7 @@ export default function NetworkInsightsPanel({
         <div className="flex items-center gap-2 text-[9px] text-muted-foreground flex-wrap">
           {Object.entries(insights.linkCounts).slice(0, 3).map(([type, count]) => (
             <span key={type} className="inline-flex items-center gap-1">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: LINK_TYPES[type]?.color || '#6b7280' }} />
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: LINK_TYPES[type]?.color || 'hsl(var(--muted-foreground))' }} />
               {count} {LINK_TYPES[type]?.label || type}
             </span>
           ))}

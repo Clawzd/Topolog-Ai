@@ -27,7 +27,7 @@ export default function LeftPanel({ onDeviceDragStart, mode, setMode }) {
   })).filter(g => g.types.length > 0);
 
   return (
-    <div className="w-[17.5rem] sm:w-72 flex-shrink-0 bg-card/80 backdrop-blur-sm border-r border-border flex flex-col overflow-hidden">
+    <div className="w-full min-h-0 flex-1 flex-shrink-0 bg-card/80 backdrop-blur-sm flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-3 pt-3 pb-2">
         <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Components</h2>

@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+﻿import { useState, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import { Sparkles, Send, ChevronDown, ChevronUp } from 'lucide-react';
 import { generateTopologyFromPrompt, getTopologyAiProviderLabel } from '@/lib/topologyAiProvider';
 import { generateId } from '../../lib/topologyData';
@@ -13,13 +13,15 @@ const EXAMPLE_PROMPTS = [
   'Data center edge with redundant routers, firewalls, and storage tier',
 ];
 
-export default function AIPanel({ onTopologyGenerated, onRefinement, hasTopology }) {
+const AIPanel = forwardRef(function AIPanel({ onTopologyGenerated, onRefinement, hasTopology }, ref) {
   const [prompt, setPrompt] = useState('');
+  const [exampleRotate, setExampleRotate] = useState(0);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
   const [showExamples, setShowExamples] = useState(false);
   const [error, setError] = useState('');
   const providerLabel = getTopologyAiProviderLabel();
+  const generateRef = useRef(null);
 
   const generate = async (text, isRefinement = false) => {
     if (!text.trim()) return;
@@ -66,6 +68,14 @@ export default function AIPanel({ onTopologyGenerated, onRefinement, hasTopology
     }
   };
 
+  useEffect(() => {
+    generateRef.current = () => generate(prompt, hasTopology);
+  }, [prompt, hasTopology]);
+
+  useImperativeHandle(ref, () => ({
+    submitGenerate: () => { void generateRef.current?.(); },
+  }), []);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     generate(prompt, hasTopology);
@@ -91,15 +101,33 @@ export default function AIPanel({ onTopologyGenerated, onRefinement, hasTopology
             value={prompt}
             onChange={e => setPrompt(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); } }}
-            placeholder={hasTopology ? 'Refine: add a DMZ, change WiFi coverage...' : 'Describe your network environment...'}
-            rows={4}
+            placeholder={hasTopology ? 'Refine: add a DMZ, change WiFi coverage…' : 'Describe your space, e.g.: 3 rooms — server room, open office with 15 workstations, meeting room. Thick concrete walls. Need full WiFi coverage and camera monitoring.'}
+            rows={5}
+            maxLength={4000}
             className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary resize-none leading-relaxed"
           />
+          <div className="flex items-center justify-between mt-1">
+            <p className="text-[9px] text-muted-foreground">⌘+Enter / Ctrl+Enter to generate (v3 §631)</p>
+            <span className="text-[9px] font-mono text-muted-foreground">{prompt.length} / 4000</span>
+          </div>
           {error && <p className="text-[10px] text-destructive mt-1">{error}</p>}
+          <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => {
+              const p = EXAMPLE_PROMPTS[exampleRotate % EXAMPLE_PROMPTS.length];
+              setExampleRotate((x) => x + 1);
+              setPrompt(p);
+            }}
+            className="flex-1 flex items-center justify-center gap-1.5 border border-border bg-muted/50 text-foreground text-xs font-medium py-2 rounded-lg hover:bg-muted transition-colors disabled:opacity-40"
+          >
+            Load example
+          </button>
           <button
             type="submit"
             disabled={loading || !prompt.trim()}
-            className="mt-2 w-full flex items-center justify-center gap-2 bg-primary text-primary-foreground text-xs font-medium py-2 rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity"
+            className="flex-[1.4] flex items-center justify-center gap-2 bg-primary text-primary-foreground text-xs font-medium py-2 rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity"
           >
             {loading ? (
               <span className="flex items-center gap-2">
@@ -119,6 +147,7 @@ export default function AIPanel({ onTopologyGenerated, onRefinement, hasTopology
               </>
             )}
           </button>
+          </div>
         </form>
       </div>
 
@@ -168,4 +197,6 @@ export default function AIPanel({ onTopologyGenerated, onRefinement, hasTopology
       )}
     </div>
   );
-}
+});
+
+export default AIPanel;

@@ -114,6 +114,56 @@ function roomAtPoint(rooms, x, y) {
   return rooms.find(r => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) || null;
 }
 
+function parseCommaTypes(s) {
+  return String(s || '')
+    .split(',')
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** When non-empty, device `type` must appear in the comma list (case-insensitive). */
+function deviceAllowedInZone(deviceType, allowedCsv) {
+  const tokens = parseCommaTypes(allowedCsv);
+  if (!tokens.length) return true;
+  return tokens.includes(String(deviceType || '').toLowerCase());
+}
+
+function isGuestishVlanTag(vlanName, vlans) {
+  const v = String(vlanName || '').trim().toLowerCase();
+  if (!v) return false;
+  if (v.includes('guest')) return true;
+  const row = (vlans || []).find((x) => x.name === vlanName);
+  if (!row) return false;
+  return String(row.label || '').toLowerCase().includes('guest');
+}
+
+function firstGuestVlanName(vlans) {
+  const row = (vlans || []).find(
+    (x) =>
+      String(x.name || '').toLowerCase().includes('guest') ||
+      String(x.label || '').toLowerCase().includes('guest'),
+  );
+  return row?.name || null;
+}
+
+/** Undirected reachability from fromId to any node of targetType (BFS). */
+function canReachDeviceType(fromId, targetType, nodes, links, excludeNodeId, excludeLinkId) {
+  const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+  const adj = buildGraph(nodes, links, excludeNodeId, excludeLinkId);
+  const seen = new Set();
+  const q = [fromId];
+  while (q.length) {
+    const id = q.shift();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (id !== fromId && byId[id]?.type === targetType) return true;
+    for (const nid of adj.get(id) || []) {
+      if (!seen.has(nid)) q.push(nid);
+    }
+  }
+  return false;
+}
+
 function pointInRect(x, y, rx, ry, rw, rh) {
   return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
 }
@@ -179,6 +229,7 @@ function collectBarrierLoss(barriers, x1, y1, x2, y2) {
   let rfBlock = false;
   for (const raw of barriers || []) {
     const br = mergeBarrierDefaults(raw);
+    if (br.environmentKind === 'conduit') continue;
     if (!br.blocksWifi) continue;
     if (!lineCrossesBarrier(br, x1, y1, x2, y2)) continue;
     if (br.barrierType === 'rf_shield') {
@@ -207,6 +258,21 @@ function noiseDbFromRoom(room) {
   if (room.noiseLevel === 'high') return 8;
   if (room.noiseLevel === 'medium') return 4;
   return 0;
+}
+
+/** Extra loss when AP and client sit in zones with different `floor` (both must be inside rooms). */
+const INTER_FLOOR_DB_PER_LEVEL = 9;
+const INTER_FLOOR_DB_MAX = 40;
+
+function interFloorLossDb(roomAp, roomClient) {
+  if (!roomAp || !roomClient) return 0;
+  const fa = Number(mergeRoomDefaults(roomAp).floor);
+  const fb = Number(mergeRoomDefaults(roomClient).floor);
+  const flA = Number.isFinite(fa) ? fa : 1;
+  const flB = Number.isFinite(fb) ? fb : 1;
+  const diff = Math.abs(flA - flB);
+  if (diff < 1e-6) return 0;
+  return Math.min(INTER_FLOOR_DB_MAX, diff * INTER_FLOOR_DB_PER_LEVEL);
 }
 
 function txPowerRadiusMul(tx) {
@@ -313,12 +379,119 @@ function coChannelPairs(aps) {
   return pairs;
 }
 
+/** For canvas co-channel hatched overlay (AP coverage overlap approximation). */
+export function getCoChannelApPairs(rawNodes) {
+  const aps = (rawNodes || []).filter((n) => n.type === 'ap').map(mergeNodeDefaults);
+  return coChannelPairs(aps).map(([a, b]) => {
+    const r1 = Number(a.coverageRadius) || 180;
+    const r2 = Number(b.coverageRadius) || 180;
+    return {
+      id: `${a.id}_${b.id}`,
+      x1: a.x + NODE_DIM.W / 2,
+      y1: a.y + NODE_DIM.H / 2,
+      x2: b.x + NODE_DIM.W / 2,
+      y2: b.y + NODE_DIM.H / 2,
+      r1: r1 * 0.72,
+      r2: r2 * 0.72,
+      channel: a.channel,
+    };
+  });
+}
+
 function cableLengthFromPixels(link, nodes) {
   const a = nodes.find(n => n.id === link.source);
   const b = nodes.find(n => n.id === link.target);
   if (!a || !b) return 0;
   const d = dist(nodeCenter(a), nodeCenter(b));
   return link.cableLengthM ?? d * 0.1524;
+}
+
+function normVlanTag(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '');
+}
+
+function parseVlanCsv(s) {
+  return String(s || '')
+    .split(',')
+    .map((t) => normVlanTag(t))
+    .filter(Boolean);
+}
+
+/** Empty CSV means "not specified" → allow any VLAN for validation. */
+function vlanMentionedInCsv(csv, vlanRaw) {
+  const v = normVlanTag(vlanRaw);
+  if (!v) return true;
+  const tokens = parseVlanCsv(csv);
+  if (!tokens.length) return true;
+  return tokens.includes(v);
+}
+
+function findLinkBetween(links, a, b, excludeLinkId) {
+  return links.find(
+    (l) =>
+      l.id !== excludeLinkId &&
+      ((l.source === a && l.target === b) || (l.source === b && l.target === a)),
+  );
+}
+
+function linksAlongNodePath(links, path, excludeLinkId) {
+  const out = [];
+  for (let i = 0; i < path.length - 1; i++) {
+    const lk = findLinkBetween(links, path[i], path[i + 1], excludeLinkId);
+    if (lk) out.push(lk);
+  }
+  return out;
+}
+
+/** Shortest path using only Ethernet/fiber edges to a WAN/core-type node in gatewayReach. */
+function wiredShortestPathToCore(nodes, links, gatewayReach, fromId, excludeNodeId, excludeLinkId) {
+  const gatewayIds = new Set(
+    nodes
+      .filter((n) => n.id !== fromId && GATEWAY_TYPES.has(n.type) && gatewayReach.has(n.id))
+      .map((n) => n.id),
+  );
+  if (!gatewayIds.size || !gatewayReach.has(fromId)) return null;
+
+  const adj = new Map(nodes.map((n) => [n.id, []]));
+  const active = new Set(nodes.filter((n) => n.id !== excludeNodeId).map((n) => n.id));
+  links.forEach((l) => {
+    if (l.id === excludeLinkId) return;
+    const lk = mergeLinkDefaults(l);
+    if (lk.type !== 'ethernet' && lk.type !== 'fiber') return;
+    if (!active.has(l.source) || !active.has(l.target)) return;
+    adj.get(l.source).push(l.target);
+    adj.get(l.target).push(l.source);
+  });
+
+  const prev = new Map();
+  const q = [fromId];
+  const seen = new Set([fromId]);
+  let end = null;
+  while (q.length) {
+    const id = q.shift();
+    if (gatewayIds.has(id) && id !== fromId) {
+      end = id;
+      break;
+    }
+    for (const nid of adj.get(id) || []) {
+      if (seen.has(nid)) continue;
+      seen.add(nid);
+      prev.set(nid, id);
+      q.push(nid);
+    }
+  }
+  if (end == null) return null;
+  const path = [end];
+  let cur = end;
+  while (cur !== fromId) {
+    cur = prev.get(cur);
+    if (cur == null) return null;
+    path.unshift(cur);
+  }
+  return path;
 }
 
 /** @param {object} params */
@@ -381,29 +554,46 @@ export function computeSmartTopology({
 
     let best = null;
     let bestScore = -1;
-    aps.forEach(ap => {
-      if (!gatewayReach.has(ap.id)) return;
-      const ac = nodeCenter(ap);
-      const d = dist(cc, ac);
-      const apn = mergeNodeDefaults(ap);
-      const maxR = (apn.maxRadius || 240) * txPowerRadiusMul(apn.txPower);
-      const usableR = (apn.coverageRadius || 180) * txPowerRadiusMul(apn.txPower);
-      const roomAp = roomAtPoint(rooms, ac.x, ac.y);
-      const { db: barrierDb, rfBlock } = collectBarrierLoss(barriers, ac.x, ac.y, cc.x, cc.y);
-      const borderDb = roomBorderLossDb(roomAp, roomC);
-      const noiseDb = noiseDbFromRoom(roomC) + noiseDbFromRoom(roomAp);
-      const totalDb = barrierDb + borderDb + noiseDb + (apn.environment === 'dense' ? 3 : 0);
-      if (rfBlock) {
-        if (bestScore < 0) best = { ap, score: 0, d, totalDb, rfBlock: true };
-        return;
-      }
-      let score = 100 - (d / maxR) * 100 - totalDb * 0.45;
-      score = Math.max(0, Math.min(100, score));
-      if (score > bestScore) {
-        bestScore = score;
-        best = { ap, score, d, totalDb, rfBlock: false };
-      }
-    });
+    let secondPassRan = false;
+    const clientPref = String(client.preferredSsid || '').trim();
+
+    const runApScoring = (ssidStrict) => {
+      aps.forEach((ap) => {
+        if (!gatewayReach.has(ap.id)) return;
+        const apn = mergeNodeDefaults(ap);
+        if (ssidStrict && clientPref) {
+          const apSsid = String(apn.ssid || '').trim();
+          if (apSsid && clientPref !== apSsid) return;
+        }
+        const ac = nodeCenter(ap);
+        const d = dist(cc, ac);
+        const maxR = (apn.maxRadius || 240) * txPowerRadiusMul(apn.txPower);
+        const roomAp = roomAtPoint(rooms, ac.x, ac.y);
+        const { db: barrierDb, rfBlock } = collectBarrierLoss(barriers, ac.x, ac.y, cc.x, cc.y);
+        const borderDb = roomBorderLossDb(roomAp, roomC);
+        const floorDb = interFloorLossDb(roomAp, roomC);
+        const noiseDb = noiseDbFromRoom(roomC) + noiseDbFromRoom(roomAp);
+        const totalDb = barrierDb + borderDb + noiseDb + floorDb + (apn.environment === 'dense' ? 3 : 0);
+        if (rfBlock) {
+          if (bestScore < 0) best = { ap, score: 0, d, totalDb, rfBlock: true, floorDb: 0 };
+          return;
+        }
+        let score = 100 - (d / maxR) * 100 - totalDb * 0.45;
+        score = Math.max(0, Math.min(100, score));
+        if (score > bestScore) {
+          bestScore = score;
+          best = { ap, score, d, totalDb, rfBlock: false, floorDb };
+        }
+      });
+    };
+
+    runApScoring(true);
+    if (!best || best.rfBlock || bestScore < 1) {
+      best = null;
+      bestScore = -1;
+      runApScoring(false);
+      secondPassRan = !!clientPref;
+    }
 
     if (!best || best.rfBlock || bestScore < 1) {
       const reasons = [];
@@ -451,13 +641,28 @@ export function computeSmartTopology({
     const reasons = [
       `${Math.round(best.d)} canvas units from ${apn.label || apn.id}.`,
       best.totalDb > 0.5 ? `Estimated obstruction/noise penalty ~${Math.round(best.totalDb)} dB.` : '',
+      best.floorDb > 0.5 ? `AP and client zones use different floors (~${Math.round(best.floorDb)} dB inter-floor loss).` : '',
     ].filter(Boolean);
     if (congested) reasons.push(`AP serves ${load} clients (capacity ${cap}).`);
+
+    const apSsidChosen = String(apn.ssid || '').trim();
+    if (
+      secondPassRan &&
+      clientPref &&
+      apSsidChosen &&
+      clientPref !== apSsidChosen
+    ) {
+      reasons.push(`Preferred SSID "${clientPref}" not available — associated with ${apSsidChosen || apn.label || apn.id} instead.`);
+    }
 
     const suggestions = [];
     if (score < 60) suggestions.push(`Move ${client.label || client.id} closer to ${apn.label || apn.id}.`);
     if (congested) suggestions.push('Add another AP or reduce client load.');
     if (best.totalDb > 8) suggestions.push('Remove barriers or add AP on the near side of the wall.');
+    if (best.floorDb > 9) suggestions.push('Add an AP on this floor or align room floor numbers with the physical stack.');
+    if (secondPassRan && clientPref && apSsidChosen && clientPref !== apSsidChosen) {
+      suggestions.push(`Add an AP with SSID "${clientPref}" or clear preferred SSID on this device.`);
+    }
 
     deviceStates[client.id] = {
       smartState: congested && smartState === 'healthy' ? 'slow_network' : smartState,
@@ -532,6 +737,105 @@ export function computeSmartTopology({
         autoFix: null,
       });
     }
+  });
+
+  aps.forEach((ap) => {
+    const apn = mergeNodeDefaults(ap);
+    const bh = apn.backhaulType || 'ethernet';
+    if (bh !== 'wifi_mesh' && bh !== 'powerline') return;
+    const load = (apClients[ap.id] || []).length;
+    if (load < 10) return;
+    findings.push({
+      id: `bh_${ap.id}`,
+      severity: 'low',
+      title: 'Heavy client load on mesh/PLC backhaul',
+      detail: `${ap.label || ap.id} uses ${bh} uplink with ${load} wireless clients — throughput may suffer.`,
+      nodeIds: [ap.id],
+      linkIds: [],
+      whyLines: [`backhaulType=${bh}`, `wirelessClients=${load}`],
+      suggestions: ['Use Ethernet for AP uplink where possible', 'Add APs to split client load'],
+      autoFix: null,
+    });
+  });
+
+  // Phase C: AP supported VLANs + wired trunk carry toward core
+  const apVlanViolations = new Map();
+  const trunkVlanViolations = new Map();
+
+  nodes.forEach((n) => {
+    const vlan = n.vlan;
+    if (!vlan || !normVlanTag(vlan)) return;
+    if (!gatewayReach.has(n.id)) return;
+    const st = deviceStates[n.id];
+    if (!st) return;
+
+    const wifiAirborne =
+      isWirelessClient(n) &&
+      !hasEthernetPathToGateway(n.id, nodes, links, gatewayReach, excludeNodeId, excludeLinkId);
+
+    if (wifiAirborne && st.apId) {
+      const apNode = mergeNodeDefaults(nodeById[st.apId]);
+      const sup = apNode?.supportedVlans;
+      if (sup && String(sup).trim() && !vlanMentionedInCsv(sup, vlan)) {
+        const key = `${st.apId}::${normVlanTag(vlan)}`;
+        if (!apVlanViolations.has(key)) apVlanViolations.set(key, { apId: st.apId, vlan, clients: [] });
+        const ev = apVlanViolations.get(key);
+        if (!ev.clients.includes(n.id)) ev.clients.push(n.id);
+        st.reasons = [...(st.reasons || []), `${apNode.label || st.apId} may not carry VLAN ${vlan} (check supported VLANs).`];
+        st.suggestions = [...(st.suggestions || []), `Add ${vlan} to supported VLANs on the AP/router`];
+      }
+    }
+
+    const uplinkStart =
+      wifiAirborne && st.apId ? st.apId : n.id;
+    const path = wiredShortestPathToCore(nodes, links, gatewayReach, uplinkStart, excludeNodeId, excludeLinkId);
+    if (!path || path.length < 2) return;
+
+    const pathLinks = linksAlongNodePath(links, path, excludeLinkId);
+    pathLinks.forEach((link) => {
+      const lk = mergeLinkDefaults(link);
+      if (lk.type !== 'ethernet' && lk.type !== 'fiber') return;
+      const trunk = lk.trunkVlans;
+      if (!trunk || !String(trunk).trim()) return;
+      if (vlanMentionedInCsv(trunk, vlan)) return;
+      const key = `${link.id}::${normVlanTag(vlan)}`;
+      if (!trunkVlanViolations.has(key)) trunkVlanViolations.set(key, { link, vlan, nodeIds: [] });
+      const bucket = trunkVlanViolations.get(key);
+      if (!bucket.nodeIds.includes(n.id)) bucket.nodeIds.push(n.id);
+    });
+  });
+
+  apVlanViolations.forEach((rec, key) => {
+    const apNode = nodeById[rec.apId];
+    findings.push({
+      id: `ap_vlan_${key.replace(/[^a-z0-9]+/gi, '_')}`,
+      severity: 'medium',
+      title: 'AP VLAN support mismatch',
+      detail: `${apNode?.label || rec.apId} does not list ${rec.vlan} in supported VLANs while wireless clients use it (${rec.clients.length} device(s)).`,
+      nodeIds: [...new Set([...rec.clients, rec.apId])],
+      linkIds: [],
+      whyLines: [`supportedVlans=${apNode?.supportedVlans || ''}`],
+      suggestions: [`Add ${rec.vlan} to supported VLANs on ${apNode?.label || 'the AP/router'}`],
+      autoFix: { type: 'append_ap_supported_vlan', apId: rec.apId, vlan: String(rec.vlan).trim() },
+    });
+  });
+
+  trunkVlanViolations.forEach((rec) => {
+    const { link, vlan, nodeIds } = rec;
+    const srcL = nodeById[link.source]?.label || link.source;
+    const tgtL = nodeById[link.target]?.label || link.target;
+    const trunkStr = mergeLinkDefaults(link).trunkVlans;
+    findings.push({
+      id: `trunk_${link.id}_${normVlanTag(vlan)}`,
+      severity: 'medium',
+      title: 'VLAN missing on trunk',
+      detail: `Link ${srcL} → ${tgtL} restricts allowed VLANs but ${vlan} is not included.`,
+      nodeIds: [...new Set(nodeIds)],
+      linkIds: [link.id],
+      whyLines: [`trunkVlans=${trunkStr}`],
+      suggestions: [`Add ${vlan} to trunk VLANs on ${srcL}↔${tgtL}`],
+      autoFix: { type: 'append_link_trunk_vlan', linkId: link.id, vlan: String(vlan).trim() },
+    });
   });
 
   // PoE check
@@ -680,6 +984,89 @@ export function computeSmartTopology({
         });
       }
     }
+
+    const rmz = mergeRoomDefaults(room);
+
+    if (rmz.allowedDeviceTypes) {
+      inside.forEach((n) => {
+        if (deviceAllowedInZone(n.type, rmz.allowedDeviceTypes)) return;
+        findings.push({
+          id: `zone_allow_${room.id}_${n.id}`,
+          severity: 'medium',
+          title: 'Device type not allowed in zone',
+          detail: `${n.label || n.id} (${n.type}) is in ${room.label} but allowed types are: ${rmz.allowedDeviceTypes}.`,
+          nodeIds: [n.id],
+          linkIds: [],
+          whyLines: [],
+          suggestions: ['Move device out of zone', 'Edit allowed device types', 'Loosen zone rules'],
+          autoFix: null,
+        });
+      });
+    }
+
+    if (rmz.zoneType === 'guest_area') {
+      const badGuest = inside.filter(
+        (n) =>
+          ['laptop', 'tablet', 'phone', 'pc', 'printer', 'iot', 'camera'].includes(n.type) &&
+          !isGuestishVlanTag(n.vlan, vlans),
+      );
+      if (badGuest.length) {
+        const hint = firstGuestVlanName(vlans);
+        findings.push({
+          id: `guest_zone_${room.id}`,
+          severity: 'low',
+          title: 'Guest zone VLAN',
+          detail: `${room.label}: ${badGuest.length} device(s) are not tagged with an obvious guest VLAN (name or label should reference "guest").`,
+          nodeIds: badGuest.map((n) => n.id),
+          linkIds: [],
+          whyLines: [],
+          suggestions: hint
+            ? [`Assign VLAN ${hint} to guest clients`, 'Or rename a VLAN to include "guest" in the name or label']
+            : ['Create a guest VLAN and assign it to these devices'],
+          autoFix: null,
+        });
+      }
+    }
+
+    const allowTokens = parseCommaTypes(rmz.allowedDeviceTypes);
+    inside.forEach((n) => {
+      if (n.type !== 'printer') return;
+      const sens =
+        rmz.zoneType === 'server_room' ||
+        rmz.securityLevel === 'restricted' ||
+        rmz.securityLevel === 'critical';
+      if (!sens) return;
+      if (allowTokens.length && !allowTokens.includes('printer')) return;
+      if (allowTokens.includes('printer')) return;
+      findings.push({
+        id: `printer_zone_${room.id}_${n.id}`,
+        severity: 'medium',
+        title: 'Printer in sensitive zone',
+        detail: `${n.label || n.id} is a shared printer in ${room.label} (${rmz.zoneType}, security ${rmz.securityLevel}).`,
+        nodeIds: [n.id],
+        linkIds: [],
+        whyLines: [],
+        suggestions: ['Move printer to a staff or office zone', 'Add printer to allowed device types if intentional'],
+        autoFix: null,
+      });
+    });
+  });
+
+  nodes.forEach((cam) => {
+    if (cam.type !== 'camera') return;
+    if (!gatewayReach.has(cam.id)) return;
+    if (canReachDeviceType(cam.id, 'nas', nodes, links, excludeNodeId, excludeLinkId)) return;
+    findings.push({
+      id: `cam_nas_${cam.id}`,
+      severity: 'low',
+      title: 'Camera recording path unclear',
+      detail: `${cam.label || cam.id} has no graph path to any NAS (heuristic for recording / storage reachability).`,
+      nodeIds: [cam.id],
+      linkIds: [],
+      whyLines: [],
+      suggestions: ['Route camera traffic toward a NAS or NVR on the canvas', 'Add a NAS and connect it through the switch fabric'],
+      autoFix: null,
+    });
   });
 
   // Cloud without firewall
@@ -783,6 +1170,48 @@ export function computeSmartTopology({
 
   const apSuggestions = computeApGhostSuggestions(nodes, rooms, barriers, deviceStates, aps);
 
+  // PDU fault: flag neighbors / cable reach as power-stressed (demo cascade)
+  if (excludeNodeId) {
+    const failedPdu = nodes.find((n) => n.id === excludeNodeId && n.type === 'pdu');
+    if (failedPdu) {
+      const affected = new Set();
+      links.forEach((l) => {
+        if (l.source === excludeNodeId) affected.add(l.target);
+        if (l.target === excludeNodeId) affected.add(l.source);
+      });
+      const fc = nodeCenter(failedPdu);
+      nodes.forEach((n) => {
+        if (n.id === excludeNodeId) return;
+        if (dist(nodeCenter(n), fc) < 320) affected.add(n.id);
+      });
+      affected.forEach((id) => {
+        const cur = deviceStates[id];
+        if (!cur) return;
+        deviceStates[id] = {
+          ...cur,
+          smartState: 'power_missing',
+          reasons: [...(cur.reasons || []), 'PDU offline — assumed loss of branch/rack power.'].slice(0, 8),
+          badgeLabel: 'PWR',
+          badgeTone: 'power',
+          suggestions: [...(cur.suggestions || []), 'Verify alternate feed or UPS path'].slice(0, 8),
+        };
+      });
+      if (affected.size) {
+        findings.push({
+          id: `pdu_cascade_${excludeNodeId}`,
+          severity: 'high',
+          title: 'PDU fault cascade',
+          detail: `${affected.size} nearby or directly linked devices flagged for power risk.`,
+          nodeIds: [...affected],
+          linkIds: [],
+          whyLines: ['Heuristic: links to failed PDU or within ~320 canvas units.'],
+          suggestions: ['Transfer load', 'Restore PDU'],
+          autoFix: null,
+        });
+      }
+    }
+  }
+
   return {
     deviceStates,
     findings,
@@ -846,12 +1275,39 @@ export function shortestPath(nodes, links, fromId, toId, excludeNodeId = null, e
   return path;
 }
 
-export function heatmapSignalSamples(nodes, rooms, barriers, bounds, step = 40) {
+/** Axis-aligned bounds from wall-like barriers (v3 Phase B — room-from-walls helper). */
+export function boundingBoxFromBarriers(barriers) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const raw of barriers || []) {
+    if (raw.environmentKind === 'noise' || raw.environmentKind === 'conduit') continue;
+    const x1 = raw.x1 ?? raw.x;
+    const y1 = raw.y1 ?? raw.y;
+    const x2 = raw.x2 ?? raw.x + (raw.dx || 0);
+    const y2 = raw.y2 ?? raw.y + (raw.dy || 0);
+    minX = Math.min(minX, x1, x2);
+    minY = Math.min(minY, y1, y2);
+    maxX = Math.max(maxX, x1, x2);
+    maxY = Math.max(maxY, y1, y2);
+  }
+  if (!Number.isFinite(minX)) return null;
+  const w = maxX - minX;
+  const h = maxY - minY;
+  if (w < 24 || h < 24) return null;
+  return { x: minX, y: minY, w, h };
+}
+
+/** Ray-sampled signal field (segment AP→cell through barriers). Capped for CPU (Phase B). */
+export function heatmapSignalSamples(nodes, rooms, barriers, bounds, step = 32) {
   const samples = [];
   const aps = coverageSources(nodes.map(mergeNodeDefaults));
   if (!aps.length) return samples;
+  const MAX_SAMPLES = 720;
   for (let x = bounds.minX; x <= bounds.maxX; x += step) {
     for (let y = bounds.minY; y <= bounds.maxY; y += step) {
+      if (samples.length >= MAX_SAMPLES) return samples;
       let best = 0;
       aps.forEach(ap => {
         const ac = nodeCenter(ap);
@@ -862,8 +1318,9 @@ export function heatmapSignalSamples(nodes, rooms, barriers, bounds, step = 40) 
         const roomAp = roomAtPoint(rooms, ac.x, ac.y);
         const { db, rfBlock } = collectBarrierLoss(barriers, ac.x, ac.y, x, y);
         const borderDb = roomBorderLossDb(roomAp, roomP);
+        const floorDb = interFloorLossDb(roomAp, roomP);
         if (rfBlock) return;
-        let s = 100 - (d / maxR) * 100 - (db + borderDb) * 0.45 - noiseDbFromRoom(roomP) * 0.45;
+        let s = 100 - (d / maxR) * 100 - (db + borderDb + floorDb) * 0.45 - noiseDbFromRoom(roomP) * 0.45;
         s = Math.max(0, Math.min(100, s));
         if (s > best) best = s;
       });

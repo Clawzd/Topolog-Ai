@@ -37,6 +37,41 @@
     --cyan: 174 83% 42%;
     --cyan-glow: 0 0 20px hsla(174, 83%, 42%, 0.3);
   }
+
+  /* v3 optional light mode — toggled via `html.light` on documentElement */
+  html.light {
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 188 86% 38%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 16% 93%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 16% 93%;
+    --muted-foreground: 215 16% 40%;
+    --accent: 38 92% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 188 86% 38%;
+    --sidebar-background: 210 20% 98%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 188 86% 38%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 16% 93%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 214 20% 88%;
+    --sidebar-ring: 188 86% 38%;
+    --surface: 0 0% 100%;
+    --surface-hover: 210 16% 96%;
+    --cyan: 188 86% 38%;
+    --cyan-glow: 0 0 16px hsla(188, 86%, 38%, 0.2);
+  }
 }
 
 @layer base {

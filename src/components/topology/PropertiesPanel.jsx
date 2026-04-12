@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react';
 import { DEVICE_TYPES, LINK_TYPES } from '../../lib/topologyData';
-import { Trash2, Network, Link2, Square, ChevronDown, BrickWall, Layers } from 'lucide-react';
+import { Trash2, Network, Link2, Square, ChevronDown, BrickWall, Layers, Zap } from 'lucide-react';
 import { mergeRoomDefaults, mergeBarrierDefaults } from '../../lib/smartNetworkEngine';
 
 /** Match TopologyCanvas NODE_W / NODE_H for overlap tests */
@@ -67,7 +67,7 @@ function SelectField({ label, value, onChange, options }) {
   );
 }
 
-export default function PropertiesPanel({ selectedId, nodes, links, rooms, barriers = [], vlanZones = [], vlans, onUpdate, onDelete, onSelectNode, deviceStates = null }) {
+export default function PropertiesPanel({ selectedId, nodes, links, rooms, barriers = [], vlanZones = [], powerZones = [], vlans, onUpdate, onDelete, onSelectNode, deviceStates = null }) {
   const [form, setForm] = useState(/** @type {Record<string, any>} */ ({}));
 
   const selectedNode = nodes.find(n => n.id === selectedId);
@@ -75,9 +75,10 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
   const selectedRoom = rooms.find(r => r.id === selectedId);
   const selectedBarrier = barriers.find(b => b.id === selectedId);
   const selectedVlanZone = vlanZones.find(z => z.id === selectedId);
+  const selectedPowerZone = powerZones.find(z => z.id === selectedId);
 
-  const item = selectedNode || selectedLink || selectedRoom || selectedBarrier || selectedVlanZone;
-  const type = selectedNode ? 'node' : selectedLink ? 'link' : selectedRoom ? 'room' : selectedBarrier ? 'barrier' : selectedVlanZone ? 'vlanZone' : null;
+  const item = selectedNode || selectedLink || selectedRoom || selectedBarrier || selectedVlanZone || selectedPowerZone;
+  const type = selectedNode ? 'node' : selectedLink ? 'link' : selectedRoom ? 'room' : selectedBarrier ? 'barrier' : selectedVlanZone ? 'vlanZone' : selectedPowerZone ? 'powerZone' : null;
 
   useEffect(() => {
     if (item) setForm({ ...item });
@@ -99,8 +100,9 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
     room: <Square className="w-3.5 h-3.5" />,
     barrier: <BrickWall className="w-3.5 h-3.5" />,
     vlanZone: <Layers className="w-3.5 h-3.5" />,
+    powerZone: <Zap className="w-3.5 h-3.5" />,
   };
-  const typeLabel = { node: 'Device', link: 'Connection', room: 'Room', barrier: 'Barrier', vlanZone: 'VLAN zone' };
+  const typeLabel = { node: 'Device', link: 'Connection', room: 'Room', barrier: 'Barrier', vlanZone: 'VLAN zone', powerZone: 'Power zone' };
 
   return (
     <div className="w-64 bg-card border-l border-border flex flex-col overflow-hidden slide-in-right">
@@ -174,15 +176,51 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
                   ]}
                 />
               )}
+              {(form.type === 'laptop' ||
+                form.type === 'tablet' ||
+                form.type === 'phone' ||
+                form.type === 'printer' ||
+                form.type === 'smarttv' ||
+                form.type === 'iot' ||
+                form.type === 'camera' ||
+                (form.type === 'pc' && (form.connectionMode || 'wifi') !== 'wired')) && (
+                <Field
+                  label="Preferred SSID (optional)"
+                  value={form.preferredSsid}
+                  onChange={v => change('preferredSsid', v)}
+                  onBlur={save}
+                  placeholder="Must match an AP SSID when set"
+                />
+              )}
             </Section>
 
             {(form.type === 'ap' || form.type === 'router') && (
               <Section title="Wireless (AP / router)" defaultOpen={false}>
                 <Field label="SSID" value={form.ssid} onChange={v => change('ssid', v)} onBlur={save} placeholder="Corporate" />
+                <SelectField
+                  label="Wi‑Fi backhaul"
+                  value={form.backhaulType || 'ethernet'}
+                  onChange={v => saveKey('backhaulType', v)}
+                  options={[
+                    { value: 'ethernet', label: 'Ethernet uplink' },
+                    { value: 'wifi_mesh', label: 'Wi‑Fi mesh / repeater' },
+                    { value: 'powerline', label: 'Powerline (PLC)' },
+                  ]}
+                />
                 <Field label="Coverage radius" value={form.coverageRadius} onChange={v => change('coverageRadius', Number(v))} onBlur={save} type="number" />
                 <Field label="Max radius" value={form.maxRadius} onChange={v => change('maxRadius', Number(v))} onBlur={save} type="number" />
                 <Field label="Channel" value={form.channel} onChange={v => change('channel', v)} onBlur={save} placeholder="auto / 6 / 11" />
                 <Field label="Client capacity" value={form.capacityClients} onChange={v => change('capacityClients', Number(v))} onBlur={save} type="number" />
+                <Field
+                  label="Supported VLANs (comma)"
+                  value={form.supportedVlans}
+                  onChange={v => change('supportedVlans', v)}
+                  onBlur={save}
+                  placeholder="e.g. VLAN10, VLAN30 (empty = any SSID VLAN)"
+                />
+                <p className="text-[9px] text-muted-foreground leading-snug -mt-1">
+                  When set, wireless clients must use a listed VLAN name (same spelling as the VLAN picker) to pass validation.
+                </p>
               </Section>
             )}
 
@@ -191,6 +229,9 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
                 <div className="text-[10px] text-muted-foreground space-y-1">
                   <div>Quality: <span className="font-mono text-foreground">{deviceStates[selectedId].quality}</span></div>
                   <div>State: <span className="text-foreground">{deviceStates[selectedId].smartState}</span></div>
+                  {form.demoUptime && (
+                    <div>Uptime (demo): <span className="font-mono text-emerald-300">{form.demoUptime}</span></div>
+                  )}
                   {(deviceStates[selectedId].reasons || []).map((r, i) => (
                     <div key={i}>• {r}</div>
                   ))}
@@ -198,15 +239,42 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
               </Section>
             )}
 
-            {(form.type === 'switch' || form.type === 'router') && (
-              <Section title="Ports (preview)" defaultOpen={false}>
-                <div className="flex flex-wrap gap-0.5">
-                  {(DEVICE_TYPES[form.type]?.defaultPorts || []).slice(0, 12).map((p, i) => (
-                    <span key={i} className="text-[8px] font-mono px-1 py-0.5 rounded bg-muted border border-border text-muted-foreground">{p}</span>
-                  ))}
-                </div>
-              </Section>
-            )}
+            {(form.type === 'switch' || form.type === 'router') && (() => {
+              const portCount = Math.min(24, Math.max(8, (DEVICE_TYPES[form.type]?.defaultPorts || []).length));
+              const uplinks = links
+                .filter((l) => l.source === selectedId || l.target === selectedId)
+                .filter((l) => l.type !== 'wifi')
+                .sort((a, b) => a.id.localeCompare(b.id))
+                .slice(0, portCount);
+              return (
+                <Section title="Ports" defaultOpen>
+                  <div className="grid grid-cols-8 gap-1">
+                    {Array.from({ length: portCount }, (_, i) => {
+                      const link = uplinks[i];
+                      const otherId = link ? (link.source === selectedId ? link.target : link.source) : null;
+                      const other = otherId ? nodes.find((n) => n.id === otherId) : null;
+                      const poeBad = link && ['camera', 'phone'].includes(other?.type || '') && (!link.poe || link.poe === 'none');
+                      const tone = link ? (poeBad ? 'bg-rose-900/50 border-rose-500/60' : 'bg-emerald-900/40 border-emerald-500/50') : 'bg-muted/80 border-border';
+                      return (
+                        <div
+                          key={i}
+                          title={link ? `${link.type} · ${link.label || link.id}` : 'Unused'}
+                          className={`relative h-6 rounded border text-[8px] font-mono flex items-center justify-center ${tone} text-foreground/90`}
+                        >
+                          {i + 1}
+                          {link?.poe && link.poe !== 'none' && (
+                            <span className="absolute bottom-0.5 right-0.5 h-1 w-1 rounded-full bg-amber-400" title="PoE on link" />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[9px] text-muted-foreground mt-1.5 leading-snug">
+                    Green: mapped uplink in order. Red: heuristic PoE mismatch on endpoint.
+                  </p>
+                </Section>
+              );
+            })()}
 
             <Section title="Position" defaultOpen={false}>
               <div className="grid grid-cols-2 gap-2">
@@ -257,6 +325,16 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
                   { value: 'poe++', label: 'PoE++' },
                 ]}
               />
+              <Field
+                label="Trunk VLANs (comma)"
+                value={form.trunkVlans}
+                onChange={v => change('trunkVlans', v)}
+                onBlur={save}
+                placeholder="e.g. VLAN10, VLAN20 (empty = any)"
+              />
+              <p className="text-[9px] text-muted-foreground leading-snug -mt-1">
+                When set, intelligence checks that device VLAN tags appear on this Ethernet/fiber hop toward the core.
+              </p>
               <SelectField
                 label="Link Type"
                 value={form.type}
@@ -289,6 +367,22 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
                   { value: 'iot_area', label: 'IoT area' },
                 ]}
               />
+              <Field label="Floor" value={mergeRoomDefaults(form).floor} onChange={v => change('floor', Number(v) || 1)} onBlur={save} type="number" placeholder="1" />
+              <p className="text-[9px] text-muted-foreground leading-snug -mt-1">
+                When this zone and the AP zone both have a floor set, Wi‑Fi scoring and the signal heatmap add inter-floor loss between mismatched levels.
+              </p>
+              <SelectField
+                label="Environment"
+                value={mergeRoomDefaults(form).environment}
+                onChange={v => saveKey('environment', v)}
+                options={[
+                  { value: 'open', label: 'Open' },
+                  { value: 'dense', label: 'Dense' },
+                  { value: 'industrial', label: 'Industrial' },
+                  { value: 'residential', label: 'Residential' },
+                ]}
+              />
+              <Field label="Allowed device types (comma)" value={mergeRoomDefaults(form).allowedDeviceTypes} onChange={v => change('allowedDeviceTypes', v)} onBlur={save} placeholder="server,nas,switch" />
               <SelectField
                 label="Security level"
                 value={mergeRoomDefaults(form).securityLevel}
@@ -451,6 +545,15 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
                 options={vlans.map(v => ({ value: v.name, label: `${v.name} — ${v.label}` }))}
               />
               <Field label="Fill (rgba/hex)" value={form.color} onChange={v => change('color', v)} onBlur={save} />
+            </Section>
+          </>
+        )}
+
+        {type === 'powerZone' && (
+          <>
+            <Section title="UPS / PDU coverage (v3)">
+              <Field label="Label" value={form.label} onChange={v => change('label', v)} onBlur={save} />
+              <Field label="Fill (rgba/hex)" value={form.fill} onChange={v => change('fill', v)} onBlur={save} placeholder="rgba(234,179,8,0.12)" />
             </Section>
           </>
         )}

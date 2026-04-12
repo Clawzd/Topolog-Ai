@@ -1,7 +1,18 @@
 import { DEVICE_TYPES } from '../../lib/topologyData';
 import { mergeLinkDefaults } from '../../lib/smartNetworkEngine';
 
-export default function StatsPanel({ nodes, links, vlans, rooms, barriers = [], highlightVlan, setHighlightVlan }) {
+/** v3 §539–542 — monospace stats strip */
+export default function StatsPanel({
+  nodes,
+  links,
+  vlans,
+  rooms,
+  barriers = [],
+  highlightVlan,
+  setHighlightVlan,
+  smartSnapshot = null,
+  zoom = 1,
+}) {
   const typeCounts = {};
   nodes.forEach(n => { typeCounts[n.type] = (typeCounts[n.type] || 0) + 1; });
 
@@ -15,21 +26,35 @@ export default function StatsPanel({ nodes, links, vlans, rooms, barriers = [], 
     estCableM += mergeLinkDefaults(l).cableLengthM ?? d * 0.1524;
   });
 
+  const onlineApprox = smartSnapshot?.deviceStates
+    ? nodes.filter((n) => {
+        const st = smartSnapshot.deviceStates[n.id]?.smartState;
+        return st && !['no_network', 'isolated', 'power_missing'].includes(st);
+      }).length
+    : null;
+  const warnCount = smartSnapshot?.findings?.length ?? null;
+
   return (
-    <div className="bg-card border-t border-border px-4 py-2 flex items-center gap-6 text-[10px] text-muted-foreground overflow-x-auto flex-shrink-0">
-      {/* Totals */}
-      <div className="flex items-center gap-4 flex-shrink-0">
-        <span className="text-foreground font-medium">{nodes.length} Devices</span>
-        <span>{links.length} Links</span>
-        <span>{rooms.length} Rooms</span>
-        <span>{barriers.length} Barriers</span>
-        <span>{apCount} APs</span>
-        <span className="font-mono text-[9px] opacity-80">~{Math.round(estCableM)}m cable</span>
+    <div className="bg-card border-t border-border px-4 h-8 min-h-[32px] flex items-center gap-6 text-[10px] text-muted-foreground overflow-x-auto flex-shrink-0 font-mono">
+      <div className="flex items-center gap-4 flex-shrink-0 text-foreground/90">
+        <span>Devices: <span className="text-foreground">{nodes.length}</span></span>
+        <span>Links: {links.length}</span>
+        <span>APs: {apCount}</span>
+        <span>Rooms: {rooms.length}</span>
+        <span>Walls: {barriers.length}</span>
+        {onlineApprox != null && <span>Online: {onlineApprox}</span>}
+        {warnCount != null && <span>Warnings: {warnCount}</span>}
+        <span>Zoom: {Math.round(zoom * 100)}%</span>
       </div>
 
       <div className="w-px h-4 bg-border flex-shrink-0" />
 
-      {/* Device type breakdown */}
+      <div className="flex items-center gap-3 flex-shrink-0">
+        <span className="text-muted-foreground">~{Math.round(estCableM)}m cable</span>
+      </div>
+
+      <div className="w-px h-4 bg-border flex-shrink-0" />
+
       <div className="flex items-center gap-3 flex-shrink-0">
         {Object.entries(typeCounts).map(([type, count]) => {
           const dt = DEVICE_TYPES[type];
@@ -46,7 +71,6 @@ export default function StatsPanel({ nodes, links, vlans, rooms, barriers = [], 
       {vlans.length > 0 && (
         <>
           <div className="w-px h-4 bg-border flex-shrink-0" />
-          {/* VLAN filters */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="text-muted-foreground">VLANs:</span>
             <button

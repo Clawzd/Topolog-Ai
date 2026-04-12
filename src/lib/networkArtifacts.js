@@ -1,4 +1,5 @@
 import { DEVICE_TYPES, LINK_TYPES } from './topologyData';
+import { mergeRoomDefaults } from './smartNetworkEngine';
 
 const IPV4_CIDR = /^(\d{1,3}\.){3}\d{1,3}\/([0-9]|[12][0-9]|3[0-2])$/;
 const IPV4 = /^(\d{1,3}\.){3}\d{1,3}$/;
@@ -88,7 +89,7 @@ function findSinglePointsOfFailure(nodes, links) {
   return critical;
 }
 
-export function createTopologyPayload({ nodes, links, rooms, vlans, prompt = '', barriers = [], vlanZones = [] }) {
+export function createTopologyPayload({ nodes, links, rooms, vlans, prompt = '', barriers = [], vlanZones = [], powerZones = [] }) {
   return {
     version: 1,
     prompt,
@@ -98,6 +99,7 @@ export function createTopologyPayload({ nodes, links, rooms, vlans, prompt = '',
     vlans,
     barriers,
     vlanZones,
+    powerZones,
     exportedAt: new Date().toISOString(),
   };
 }
@@ -276,6 +278,9 @@ export function generateDesignBrief(payload, smartSnapshot = null) {
   });
   const topIssues = smartSnapshot?.findings?.slice(0, 5).map((f) => `- ${f.severity}: ${f.title} — ${f.detail}`) || [];
   const topFixes = smartSnapshot?.findings?.flatMap((f) => f.suggestions || []).slice(0, 5) || [];
+  const vlanTransportFindings = (smartSnapshot?.findings || []).filter(
+    (f) => f.title === 'VLAN missing on trunk' || f.title === 'AP VLAN support mismatch',
+  );
 
   const lines = [
     '# TopologAi Design Brief',
@@ -311,6 +316,14 @@ export function generateDesignBrief(payload, smartSnapshot = null) {
       })
       : ['- No links defined.']),
     '',
+    '## Zones (rooms)',
+    ...(payload.rooms.length
+      ? payload.rooms.map((room) => {
+          const z = mergeRoomDefaults(room);
+          return `- ${room.label || room.id}: floor ${z.floor}, zone ${z.zoneType}, security ${z.securityLevel}`;
+        })
+      : ['- No rooms defined.']),
+    '',
     '## Validation',
     `Score: ${validation.score}/100`,
     ...(validation.findings.length
@@ -332,6 +345,13 @@ export function generateDesignBrief(payload, smartSnapshot = null) {
           '',
           '## Top recommendations',
           ...(topFixes.length ? topFixes.map((t) => `- ${t}`) : ['- Review findings panel for next steps.']),
+          '',
+          '## VLAN transport (engine)',
+          ...(vlanTransportFindings.length
+            ? vlanTransportFindings.slice(0, 12).map((f) => `- ${f.severity}: ${f.title} — ${f.detail}`)
+            : ['- No trunk or AP supported-VLAN mismatches flagged.']),
+          '- Hint: In Properties, use comma lists on links (Trunk VLANs) and on APs/routers (Supported VLANs); names must match the VLAN picker.',
+          '- Multi-floor RF: when the AP center and the client (or heatmap cell) both lie inside rooms, different room floor numbers add extra attenuation in Wi-Fi scoring and the signal heatmap.',
           '',
         ]
       : []),
@@ -359,10 +379,23 @@ export function generateConfigBundle(payload) {
     lines.push('!');
   });
 
+  lines.push('!');
+  lines.push('! Zones / floors');
+  (payload.rooms || []).forEach((room) => {
+    const z = mergeRoomDefaults(room);
+    lines.push(
+      `! zone "${room.label || room.id}" | floor ${z.floor} | type ${z.zoneType} | security ${z.securityLevel}`,
+    );
+  });
+
+  lines.push('!');
   lines.push('! Device intent');
   payload.nodes.forEach(node => {
     const type = DEVICE_TYPES[node.type]?.label || node.type;
-    lines.push(`! ${node.label || node.id} | ${type} | ${node.ip || 'no-ip'} | ${node.vlan || 'no-vlan'}`);
+    const sup = node.supportedVlans?.trim();
+    lines.push(
+      `! ${node.label || node.id} | ${type} | ${node.ip || 'no-ip'} | ${node.vlan || 'no-vlan'}${sup ? ` | supported-vlans: ${sup}` : ''}`,
+    );
   });
 
   lines.push('!');
@@ -372,7 +405,10 @@ export function generateConfigBundle(payload) {
     const src = nodeMap[link.source]?.label || link.source;
     const dst = nodeMap[link.target]?.label || link.target;
     const type = LINK_TYPES[link.type]?.label || link.type;
-    lines.push(`! connect "${src}" to "${dst}" using ${type}${link.label ? ` (${link.label})` : ''}`);
+    const trunk = link.trunkVlans?.trim();
+    lines.push(
+      `! connect "${src}" to "${dst}" using ${type}${link.label ? ` (${link.label})` : ''}${trunk ? ` | trunk-vlans: ${trunk}` : ''}`,
+    );
   });
 
   lines.push('!');

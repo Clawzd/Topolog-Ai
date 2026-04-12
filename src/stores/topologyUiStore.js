@@ -39,4 +39,8 @@ export const useTopologyUiStore = create((set) => ({
 
   onboardingStep: null,
   setOnboardingStep: (onboardingStep) => set({ onboardingStep }),
+
+  /** v3 §678 — snap moves to 8px grid when enabled */
+  gridSnap: false,
+  setGridSnap: (gridSnap) => set({ gridSnap }),
 }));

@@ -15,10 +15,16 @@
   Shield,
   Zap,
   MapPin,
-  AlertTriangle,
   Download,
   X,
   Radio,
+  Volume2,
+  Route,
+  Clock3,
+  Magnet,
+  Bell,
+  Play,
+  PanelRightClose,
 } from 'lucide-react';
 
 const MODES = [
@@ -27,6 +33,8 @@ const MODES = [
   { id: 'pan', icon: Move, label: 'Pan Canvas', key: 'H' },
   { id: 'room', icon: Square, label: 'Draw Room', key: 'R' },
   { id: 'barrier', icon: BrickWall, label: 'Draw Barrier', key: 'B' },
+  { id: 'noise', icon: Volume2, label: 'Noise source', key: '' },
+  { id: 'conduit', icon: Route, label: 'Cable conduit', key: '' },
   { id: 'vlanzone', icon: LayoutGrid, label: 'VLAN zone overlay', key: 'Z' },
 ];
 
@@ -81,6 +89,12 @@ export default function Toolbar({
   onClearFailure,
   findingCount = 0,
   onExport,
+  onSimulateUptime,
+  onSimulateDeviceStatus,
+  gridSnap = false,
+  setGridSnap,
+  onOpenInsights,
+  onCollapseSidebars,
 }) {
   const resetView = () => {
     setZoom(1);
@@ -115,6 +129,15 @@ export default function Toolbar({
       <ToolBtn onClick={resetView} title="Fit to View" shortcut="0">
         <Maximize2 className="w-3.5 h-3.5" />
       </ToolBtn>
+      {setGridSnap && (
+        <ToolBtn
+          onClick={() => setGridSnap(!gridSnap)}
+          title="Snap to 8px grid (v3)"
+          active={gridSnap}
+        >
+          <Magnet className="w-3.5 h-3.5" />
+        </ToolBtn>
+      )}
 
       <Divider />
 
@@ -147,9 +170,19 @@ export default function Toolbar({
       >
         <Activity className="w-3.5 h-3.5" />
       </ToolBtn>
-      <ToolBtn onClick={() => setShowTrafficFlow(!showTrafficFlow)} title="Traffic flow" active={showTrafficFlow}>
+      <ToolBtn onClick={() => setShowTrafficFlow(!showTrafficFlow)} title="Traffic flow + packet dots" active={showTrafficFlow}>
         <Activity className="w-3.5 h-3.5 opacity-80" />
       </ToolBtn>
+      {onSimulateUptime && (
+        <ToolBtn onClick={onSimulateUptime} title="Uptime counter (demo — inspector)">
+          <Clock3 className="w-3.5 h-3.5" />
+        </ToolBtn>
+      )}
+      {onSimulateDeviceStatus && (
+        <ToolBtn onClick={onSimulateDeviceStatus} title="Simulate status — random Online/Idle/Warning/Offline dots (v3 §D)">
+          <Play className="w-3.5 h-3.5" />
+        </ToolBtn>
+      )}
       <ToolBtn onClick={() => setShowComplianceView(!showComplianceView)} title="Compliance view" active={showComplianceView}>
         <Shield className="w-3.5 h-3.5" />
       </ToolBtn>
@@ -172,22 +205,29 @@ export default function Toolbar({
         </ToolBtn>
       )}
 
+      {onOpenInsights && (
+        <div className="relative">
+          <ToolBtn onClick={onOpenInsights} title="Findings — open Network Intelligence">
+            <Bell className="w-3.5 h-3.5" />
+          </ToolBtn>
+          {findingCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-destructive text-[8px] font-bold text-white flex items-center justify-center">
+              {findingCount > 9 ? '9+' : findingCount}
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="relative">
-        <ToolBtn onClick={onExport} title="Export menu (use top bar)">
+        <ToolBtn onClick={onExport} title="Export hub (7 options)">
           <Download className="w-3.5 h-3.5" />
         </ToolBtn>
-        {findingCount > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-destructive text-[8px] font-bold text-white flex items-center justify-center">
-            {findingCount > 9 ? '9+' : findingCount}
-          </span>
-        )}
       </div>
 
-      {findingCount > 0 && (
-        <span className="flex items-center gap-0.5 text-[9px] text-amber-400 ml-0.5">
-          <AlertTriangle className="w-3 h-3" />
-          {findingCount}
-        </span>
+      {onCollapseSidebars && (
+        <ToolBtn onClick={onCollapseSidebars} title="Collapse sidebars — focus canvas (v3 §605)">
+          <PanelRightClose className="w-3.5 h-3.5" />
+        </ToolBtn>
       )}
     </div>
   );
