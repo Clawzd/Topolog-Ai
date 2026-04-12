@@ -1,6 +1,7 @@
 ﻿import { useState } from 'react';
 import { DEVICE_TYPES } from '../../lib/topologyData';
-import { Search, ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
+import DEVICE_ICONS from '../../lib/deviceIcons';
+import { Search, ChevronDown, ChevronRight } from 'lucide-react';
 
 const DEVICE_GROUPS = {
   'Network Core': ['router', 'switch', 'firewall', 'loadbalancer'],
@@ -9,15 +10,6 @@ const DEVICE_GROUPS = {
   'End Devices': ['pc', 'laptop', 'phone', 'printer', 'tablet', 'smarttv'],
   'Infrastructure': ['pdu', 'patchpanel'],
   'Other': ['cloud', 'camera', 'iot'],
-};
-
-const GROUP_ICONS = {
-  'Network Core': '🔧',
-  'Wireless': '📡',
-  'Servers': '🖥️',
-  'End Devices': '💻',
-  'Infrastructure': '⚡',
-  'Other': '📦',
 };
 
 export default function LeftPanel({ onDeviceDragStart, mode, setMode }) {
@@ -58,7 +50,6 @@ export default function LeftPanel({ onDeviceDragStart, mode, setMode }) {
               onClick={() => toggleGroup(group)}
               className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/40"
             >
-              <span className="text-xs">{GROUP_ICONS[group]}</span>
               {collapsed[group] ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
               <span className="flex-1 text-left">{group}</span>
               <span className="text-[9px] text-muted-foreground/60 font-normal">{types.length}</span>
@@ -67,16 +58,18 @@ export default function LeftPanel({ onDeviceDragStart, mode, setMode }) {
               <div className="grid grid-cols-2 gap-1 px-1 pb-1.5 pt-0.5">
                 {types.map(type => {
                   const dt = DEVICE_TYPES[type];
+                  const IconFn = DEVICE_ICONS[type] || DEVICE_ICONS.pc;
                   return (
                     <div
                       key={type}
                       draggable
                       onDragStart={e => onDeviceDragStart(e, type)}
-                      className="relative flex flex-col items-center gap-1 p-2.5 rounded-lg bg-muted/30 border border-border/40 hover:border-primary/50 hover:bg-primary/5 hover:shadow-sm hover:shadow-primary/10 cursor-grab active:cursor-grabbing transition-all duration-150 group"
+                      className="relative flex flex-col items-center gap-0.5 p-2 rounded-lg bg-muted/30 border border-border/40 hover:border-primary/50 hover:bg-primary/5 hover:shadow-sm hover:shadow-primary/10 cursor-grab active:cursor-grabbing transition-all duration-150 group"
                       title={`Drag to add ${dt.label}`}
                     >
-                      <GripVertical className="absolute top-1 right-1 w-2.5 h-2.5 text-muted-foreground/0 group-hover:text-muted-foreground/40 transition-colors" />
-                      <span className="text-lg leading-none select-none" role="img" aria-label={dt.label}>{dt.icon}</span>
+                      <svg width="36" height="28" viewBox="0 0 90 50" className="flex-shrink-0">
+                        {IconFn(dt.color)}
+                      </svg>
                       <span className="text-[9px] text-muted-foreground group-hover:text-foreground leading-tight text-center font-medium transition-colors">
                         {dt.label}
                       </span>
