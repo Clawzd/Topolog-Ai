@@ -49,11 +49,16 @@ function normalizeTopology(topology) {
 
 async function generateWithDeepSeek(prompt) {
   const config = getDeepSeekConfig();
-  const response = await fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+  const useDevProxy = !!(/** @type {any} */ (import.meta)).env?.DEV;
+  const path = '/chat/completions';
+  const url = useDevProxy
+    ? `/deepseek-api${path}`
+    : `${config.baseUrl.replace(/\/$/, '')}${path}`;
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
+      ...(useDevProxy ? {} : { Authorization: `Bearer ${config.apiKey}` }),
     },
     body: JSON.stringify({
       model: config.model,
@@ -79,7 +84,14 @@ async function generateWithDeepSeek(prompt) {
   });
 
   if (!response.ok) {
-    throw new Error(`DeepSeek request failed: ${response.status}`);
+    let detail = '';
+    try {
+      const errBody = await response.text();
+      if (errBody) detail = ` — ${errBody.slice(0, 200)}`;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`DeepSeek request failed: ${response.status}${detail}`);
   }
 
   const data = await response.json();

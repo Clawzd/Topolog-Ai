@@ -114,6 +114,13 @@ const AIPanel = forwardRef(
         <p className="text-[10px] text-muted-foreground leading-relaxed">
           {providerLabel} turns a site brief into an editable topology.
         </p>
+        {providerLabel === 'Local planner' && (
+          <p className="text-[9px] text-muted-foreground/80 mt-1.5 leading-snug">
+            For DeepSeek: set <span className="font-mono">VITE_TOPOLOGAI_PROVIDER=deepseek</span>, add{' '}
+            <span className="font-mono">VITE_DEEPSEEK_API_KEY</span> in <span className="font-mono">.env</span>, then restart{' '}
+            <span className="font-mono">npm run dev</span>.
+          </p>
+        )}
       </div>
 
       {/* Prompt input */}
