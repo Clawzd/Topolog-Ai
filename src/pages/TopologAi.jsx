@@ -12,6 +12,7 @@ import MiniMap from '../components/topology/MiniMap';
 import EmptyState from '../components/topology/EmptyState';
 import NetworkInsightsPanel from '../components/topology/NetworkInsightsPanel';
 import { DEVICE_TYPES, generateId, TEMPLATES } from '../lib/topologyData';
+import { instantiateTopologyPattern, TOPOLOGY_PATTERNS } from '../lib/topologyPatterns';
 import { generatePromptTopology } from '../lib/promptTopologyGenerator';
 import { ChevronLeft, ChevronRight, Box, Home, LayoutTemplate } from 'lucide-react';
 import ConnectionTypePopup from '../components/topology/ConnectionTypePopup';
@@ -63,6 +64,7 @@ export default function TopologAi() {
   const [selectedId, setSelectedId] = useState(null);
   const [mode, setMode] = useState('select');
   const [placementType, setPlacementType] = useState(null);
+  const [placementPattern, setPlacementPattern] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 60, y: 60 });
   const [connectingFrom, setConnectingFrom] = useState(null);
@@ -123,8 +125,11 @@ export default function TopologAi() {
   }, [failureTarget]);
 
   useEffect(() => {
-    if (mode !== 'place' && placementType) setPlacementType(null);
-  }, [mode, placementType]);
+    if (mode !== 'place') {
+      if (placementType) setPlacementType(null);
+      if (placementPattern) setPlacementPattern(null);
+    }
+  }, [mode, placementType, placementPattern]);
 
   const [debouncedGraph, setDebouncedGraph] = useState(() => ({
     nodes,
@@ -549,10 +554,39 @@ export default function TopologAi() {
     setSelectedId(newNode.id);
   };
 
+  const handlePatternAdd = (patternId, anchorX, anchorY) => {
+    const genId = { node: () => generateId('n'), link: () => generateId('l') };
+    const { nodes: patternNodes, links: patternLinks } = instantiateTopologyPattern(
+      patternId,
+      anchorX,
+      anchorY,
+      genId,
+    );
+    if (!patternNodes.length) {
+      showToast('Unknown topology pattern');
+      return;
+    }
+    pushHistory();
+    setNodes((n) => [...n, ...patternNodes]);
+    setLinks((l) => [...l, ...patternLinks]);
+    setSelectedId(patternNodes[0]?.id ?? null);
+    const label = TOPOLOGY_PATTERNS.find((p) => p.id === patternId)?.label || patternId;
+    showToast(`Added ${label}`, 'success');
+  };
+
   const handleDevicePick = (type) => {
+    setPlacementPattern(null);
     setPlacementType(type);
     setMode('place');
     showToast(`Click canvas to place ${DEVICE_TYPES[type]?.label || type}`);
+  };
+
+  const handlePatternPick = (patternId) => {
+    setPlacementType(null);
+    setPlacementPattern(patternId);
+    setMode('place');
+    const label = TOPOLOGY_PATTERNS.find((p) => p.id === patternId)?.label || patternId;
+    showToast(`Click canvas to drop ${label} (multi-device segment)`);
   };
 
   const handleLinkAdd = (sourceId, targetId) => {
@@ -816,13 +850,22 @@ export default function TopologAi() {
     e.dataTransfer.setData('deviceType', type);
   };
 
+  const handlePatternDragStart = (e, patternId) => {
+    e.dataTransfer.setData('topologyPattern', patternId);
+  };
+
   const handleCanvasDrop = (e) => {
     e.preventDefault();
-    const type = e.dataTransfer.getData('deviceType');
-    if (!type) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const x = (e.clientX - rect.left - pan.x) / zoom;
     const y = (e.clientY - rect.top - pan.y) / zoom;
+    const patternId = e.dataTransfer.getData('topologyPattern');
+    if (patternId) {
+      handlePatternAdd(patternId, x, y);
+      return;
+    }
+    const type = e.dataTransfer.getData('deviceType');
+    if (!type) return;
     handleNodeAdd(type, x - 45, y - 25);
   };
 
@@ -1085,6 +1128,7 @@ export default function TopologAi() {
         setConnectingFrom(null);
         setMode('select');
         setPlacementType(null);
+        setPlacementPattern(null);
         clearFailureSim();
         setCommandPaletteOpen(false);
         setShortcutsOpen(false);
@@ -1266,9 +1310,12 @@ export default function TopologAi() {
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               <LeftPanel
                 onDeviceDragStart={handleDeviceDragStart}
+                onPatternDragStart={handlePatternDragStart}
                 onDevicePick={handleDevicePick}
+                onPatternPick={handlePatternPick}
                 mode={mode}
                 placementType={placementType}
+                placementPattern={placementPattern}
               />
             </div>
             <EnvironmentToolbox mode={mode} setMode={setMode} />
@@ -1345,6 +1392,8 @@ export default function TopologAi() {
             selectedIds={selectedIds} onMultiSelect={setSelectedIds}
             mode={mode} setMode={setMode}
             placementType={placementType}
+            placementPattern={placementPattern}
+            onPatternAdd={handlePatternAdd}
             onNodeMove={handleNodeMove}
             onNodeAdd={handleNodeAdd}
             onLinkAdd={handleLinkAdd}
@@ -1420,7 +1469,14 @@ export default function TopologAi() {
               <span className="ml-2 opacity-70">- Esc to cancel</span>
             </div>
           )}
-          {mode === 'place' && placementType && (
+          {mode === 'place' && placementPattern && (
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-primary/90 text-primary-foreground text-xs px-3 py-1.5 rounded-full shadow-lg">
+              Click canvas to place{' '}
+              {TOPOLOGY_PATTERNS.find((p) => p.id === placementPattern)?.label || placementPattern}
+              <span className="ml-2 opacity-70">- Esc to cancel</span>
+            </div>
+          )}
+          {mode === 'place' && placementType && !placementPattern && (
             <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-primary/90 text-primary-foreground text-xs px-3 py-1.5 rounded-full shadow-lg">
               Click canvas to place {DEVICE_TYPES[placementType]?.label || placementType}
               <span className="ml-2 opacity-70">- Esc to cancel</span>

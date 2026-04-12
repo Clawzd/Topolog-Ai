@@ -1,6 +1,10 @@
 ﻿import { useState, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import { Sparkles, Send, ChevronDown, ChevronUp } from 'lucide-react';
-import { generateTopologyFromPrompt, getTopologyAiProviderLabel } from '@/lib/topologyAiProvider';
+import {
+  generateTopologyFromPrompt,
+  getTopologyAiProviderLabel,
+  getTopologyAiConnectionStatus,
+} from '@/lib/topologyAiProvider';
 import { generateId } from '../../lib/topologyData';
 
 const EXAMPLE_PROMPTS = [
@@ -33,6 +37,7 @@ const AIPanel = forwardRef(
   const [showExamples, setShowExamples] = useState(false);
   const [error, setError] = useState('');
   const providerLabel = getTopologyAiProviderLabel();
+  const aiStatus = getTopologyAiConnectionStatus();
   const generateRef = useRef(null);
   const promptRef = useRef(null);
 
@@ -114,12 +119,26 @@ const AIPanel = forwardRef(
         <p className="text-[10px] text-muted-foreground leading-relaxed">
           {providerLabel} turns a site brief into an editable topology.
         </p>
-        {providerLabel === 'Local planner' && (
-          <p className="text-[9px] text-muted-foreground/80 mt-1.5 leading-snug">
-            For DeepSeek: set <span className="font-mono">VITE_TOPOLOGAI_PROVIDER=deepseek</span>, add{' '}
-            <span className="font-mono">VITE_DEEPSEEK_API_KEY</span> in <span className="font-mono">.env</span>, then restart{' '}
-            <span className="font-mono">npm run dev</span>.
-          </p>
+        {!aiStatus.enabled && (
+          <div className="text-[9px] mt-1.5 space-y-1 leading-snug">
+            <p className="text-muted-foreground/80">
+              For DeepSeek: in <span className="font-mono">.env</span> next to <span className="font-mono">package.json</span>, set{' '}
+              <span className="font-mono">VITE_TOPOLOGAI_PROVIDER=deepseek</span> and{' '}
+              <span className="font-mono">VITE_DEEPSEEK_API_KEY=…</span>, then stop and restart{' '}
+              <span className="font-mono">npm run dev</span> (Vite only loads env at startup).
+            </p>
+            <p className="text-amber-600/90 dark:text-amber-500/90">
+              Vite sees provider <span className="font-mono">{aiStatus.providerRaw}</span>
+              {' · '}
+              API key: {aiStatus.keyPresent ? 'present' : 'missing'}
+              {aiStatus.reasons.length > 0 && (
+                <>
+                  {' · '}
+                  {aiStatus.reasons.join(' ')}
+                </>
+              )}
+            </p>
+          </div>
         )}
       </div>
 

@@ -154,6 +154,8 @@ export default function TopologyCanvas({
   selectedIds, onMultiSelect,
   mode, setMode,
   placementType = null,
+  placementPattern = null,
+  onPatternAdd,
   onNodeMove, onNodeAdd, onLinkAdd, onLinkUpdate, onLinkDelete, onRoomAdd, onRoomResize, onRoomMove,
   onBeforeChange,
   zoom, pan, setZoom, setPan,
@@ -250,6 +252,11 @@ export default function TopologyCanvas({
     if (e.button !== 0) return;
     const { x, y } = svgToCanvas(e.clientX, e.clientY);
     if (mode === 'pan') { setIsPanning(true); setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y }); return; }
+    if (mode === 'place' && placementPattern) {
+      onPatternAdd && onPatternAdd(placementPattern, x, y);
+      setMode && setMode('select');
+      return;
+    }
     if (mode === 'place' && placementType) {
       onNodeAdd && onNodeAdd(placementType, x - NODE_W / 2, y - NODE_H / 2);
       setMode && setMode('select');

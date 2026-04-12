@@ -1,7 +1,8 @@
 ﻿import { useState } from 'react';
 import { DEVICE_TYPES } from '../../lib/topologyData';
 import DEVICE_ICONS from '../../lib/deviceIcons';
-import { Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { TOPOLOGY_PATTERNS } from '../../lib/topologyPatterns';
+import { Search, ChevronDown, ChevronRight, Shapes } from 'lucide-react';
 
 const DEVICE_GROUPS = {
   'Network Core': ['router', 'switch', 'firewall', 'loadbalancer'],
@@ -12,9 +13,18 @@ const DEVICE_GROUPS = {
   'Other': ['cloud', 'camera', 'iot'],
 };
 
-export default function LeftPanel({ onDeviceDragStart, onDevicePick, mode, placementType }) {
+export default function LeftPanel({
+  onDeviceDragStart,
+  onPatternDragStart,
+  onDevicePick,
+  onPatternPick,
+  mode,
+  placementType,
+  placementPattern,
+}) {
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState({});
+  const [patternsOpen, setPatternsOpen] = useState(true);
 
   const toggleGroup = (g) => setCollapsed(c => ({ ...c, [g]: !c[g] }));
 
@@ -40,6 +50,47 @@ export default function LeftPanel({ onDeviceDragStart, onDevicePick, mode, place
             onChange={e => setSearch(e.target.value)}
           />
         </div>
+      </div>
+
+      {/* Topology patterns — multi-device segments */}
+      <div className="px-3 pb-2 border-b border-border/50">
+        <button
+          type="button"
+          onClick={() => setPatternsOpen((o) => !o)}
+          className="w-full flex items-center gap-2 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/40 px-1"
+        >
+          {patternsOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          <Shapes className="w-3.5 h-3.5" />
+          <span className="flex-1 text-left">Topology patterns</span>
+          <span className="text-[10px] text-muted-foreground/60 font-normal">{TOPOLOGY_PATTERNS.length}</span>
+        </button>
+        {patternsOpen && (
+          <div className="grid grid-cols-2 gap-2 px-0.5 pt-1 pb-1">
+            {TOPOLOGY_PATTERNS.map((p) => {
+              const isActive = mode === 'place' && placementPattern === p.id;
+              return (
+                <div
+                  key={p.id}
+                  draggable
+                  onDragStart={(e) => onPatternDragStart?.(e, p.id)}
+                  onClick={() => onPatternPick?.(p.id)}
+                  className={`relative flex flex-col items-start gap-1 p-2.5 min-h-[4.5rem] rounded-xl border hover:border-primary/50 hover:bg-primary/5 hover:shadow-sm cursor-pointer active:cursor-grabbing transition-all duration-150 ${
+                    isActive
+                      ? 'bg-primary/10 border-primary/70 shadow-sm shadow-primary/20'
+                      : 'bg-muted/30 border-border/40'
+                  }`}
+                  title={p.description}
+                >
+                  <span className="text-lg leading-none" aria-hidden>
+                    {p.icon}
+                  </span>
+                  <span className="text-[11px] font-medium text-foreground leading-tight">{p.label}</span>
+                  <span className="text-[9px] text-muted-foreground leading-snug line-clamp-2">{p.description}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Device palette */}
@@ -91,7 +142,7 @@ export default function LeftPanel({ onDeviceDragStart, onDevicePick, mode, place
       {/* Footer hint */}
       <div className="p-3 border-t border-border/60">
         <div className="text-[10px] text-muted-foreground/70 text-center leading-relaxed">
-          Drag & drop onto canvas
+          Drag devices or patterns onto the canvas
         </div>
       </div>
     </div>

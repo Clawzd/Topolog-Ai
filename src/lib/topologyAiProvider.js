@@ -16,13 +16,54 @@ const TOPOLOGY_SCHEMA = {
   summary: 'Short design summary.',
 };
 
+/** Trim and strip optional matching quotes (common in hand-edited `.env`). */
+function trimEnvValue(v) {
+  let s = String(v ?? '').trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+function readDeepSeekEnv() {
+  // Must use `import.meta.env.VITE_*` directly — Vite only injects env when it sees these
+  // static property accesses; `const e = import.meta.env; e.VITE_*` stays undefined in the client.
+  const providerRaw = trimEnvValue(import.meta.env.VITE_TOPOLOGAI_PROVIDER);
+  const providerNorm = providerRaw.toLowerCase();
+  const apiKey = trimEnvValue(import.meta.env.VITE_DEEPSEEK_API_KEY);
+  const baseUrl = trimEnvValue(import.meta.env.VITE_DEEPSEEK_BASE_URL) || 'https://api.deepseek.com';
+  const model = trimEnvValue(import.meta.env.VITE_DEEPSEEK_MODEL) || 'deepseek-chat';
+  const enabled = providerNorm === 'deepseek' && apiKey.length > 0;
+  const reasons = [];
+  if (!providerRaw) reasons.push('VITE_TOPOLOGAI_PROVIDER is unset');
+  else if (providerNorm !== 'deepseek') {
+    reasons.push(`VITE_TOPOLOGAI_PROVIDER is "${providerRaw}" — set to deepseek`);
+  }
+  if (!apiKey.length) reasons.push('VITE_DEEPSEEK_API_KEY is empty or missing');
+  return { providerRaw, providerNorm, apiKey, baseUrl, model, enabled, reasons };
+}
+
 function getDeepSeekConfig() {
-  const env = (/** @type {any} */ (import.meta)).env || {};
+  const e = readDeepSeekEnv();
   return {
-    apiKey: env.VITE_DEEPSEEK_API_KEY,
-    baseUrl: env.VITE_DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
-    model: env.VITE_DEEPSEEK_MODEL || 'deepseek-chat',
-    enabled: env.VITE_TOPOLOGAI_PROVIDER === 'deepseek' && !!env.VITE_DEEPSEEK_API_KEY,
+    apiKey: e.apiKey,
+    baseUrl: e.baseUrl,
+    model: e.model,
+    enabled: e.enabled,
+  };
+}
+
+/**
+ * Why DeepSeek is off (for UI). Does not expose the API key.
+ * @returns {{ enabled: boolean, reasons: string[], providerRaw: string, keyPresent: boolean }}
+ */
+export function getTopologyAiConnectionStatus() {
+  const e = readDeepSeekEnv();
+  return {
+    enabled: e.enabled,
+    reasons: e.enabled ? [] : e.reasons,
+    providerRaw: e.providerRaw || '(unset)',
+    keyPresent: e.apiKey.length > 0,
   };
 }
 
@@ -49,7 +90,7 @@ function normalizeTopology(topology) {
 
 async function generateWithDeepSeek(prompt) {
   const config = getDeepSeekConfig();
-  const useDevProxy = !!(/** @type {any} */ (import.meta)).env?.DEV;
+  const useDevProxy = !!import.meta.env.DEV;
   const path = '/chat/completions';
   const url = useDevProxy
     ? `/deepseek-api${path}`
@@ -70,6 +111,7 @@ async function generateWithDeepSeek(prompt) {
           content: [
             'You generate editable network topology JSON for a React topology canvas.',
             'Return only valid JSON. Do not include markdown.',
+            'When the user asks for classic shapes, model them as multiple nodes and links: star (central switch/AP hub to endpoints), bus (linear chain backbone), ring (cycle), full mesh (each node connected to each other in a small set), tree (rooted hierarchy), or hybrid (combine hub-and-spoke with a bus or dual uplinks).',
             'Use these device types only: router, switch, ap, server, firewall, cloud, pc, laptop, printer, camera, nas, phone, loadbalancer, tablet, iot, pdu, patchpanel, smarttv.',
             'Use these link types only: ethernet, fiber, wifi, wan, vpn.',
             `Schema example: ${JSON.stringify(TOPOLOGY_SCHEMA)}`,

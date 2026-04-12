@@ -1,4 +1,5 @@
-import { MOCK_AI_RESPONSES } from './topologyData';
+import { MOCK_AI_RESPONSES, generateId } from './topologyData';
+import { patternIdFromPrompt, instantiateTopologyPattern, TOPOLOGY_PATTERNS } from './topologyPatterns';
 
 const SCENARIO_HINTS = [
   {
@@ -37,6 +38,20 @@ export function generatePromptTopology(userPrompt) {
   }
   if (['zero trust', 'branch', 'sd-wan', 'sdwan'].some(word => lower.includes(word))) {
     return zeroTrustBranchTopology(hint);
+  }
+
+  const pid = patternIdFromPrompt(hint);
+  if (pid) {
+    const genId = { node: () => generateId('n'), link: () => generateId('l') };
+    const { nodes, links } = instantiateTopologyPattern(pid, 400, 300, genId);
+    const meta = TOPOLOGY_PATTERNS.find((p) => p.id === pid);
+    return {
+      nodes,
+      links,
+      rooms: [],
+      vlans: [],
+      summary: `${meta?.label || pid} for "${hint}". ${getScenarioNote(hint)} Combine with palette segments (bus, star, ring, mesh, tree, hybrid) or single devices.`,
+    };
   }
 
   const topology = MOCK_AI_RESPONSES.default(hint);
