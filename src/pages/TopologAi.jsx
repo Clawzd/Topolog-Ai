@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useCallback, useEffect } from 'react';
+﻿import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import TopBar from '../components/topology/TopBar';
 import Toolbar from '../components/topology/Toolbar';
 import LeftPanel from '../components/topology/LeftPanel';
@@ -26,6 +26,11 @@ import {
   generateDesignBrief,
   validateTopology,
 } from '../lib/networkArtifacts';
+import { computeSmartTopology, shortestPath } from '../lib/smartNetworkEngine';
+import { useTopologyUiStore } from '../stores/topologyUiStore';
+import CommandPalette from '../components/topology/CommandPalette';
+import KeyboardShortcutsModal from '../components/topology/KeyboardShortcutsModal';
+import OnboardingTour from '../components/topology/OnboardingTour';
 
 const CANVAS_STORAGE_KEY = 'topologai_canvas';
 
@@ -34,6 +39,9 @@ export default function TopologAi() {
   const [links, setLinks] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [vlans, setVlans] = useState([]);
+  const [barriers, setBarriers] = useState([]);
+  const [vlanZones, setVlanZones] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [mode, setMode] = useState('select');
   const [zoom, setZoom] = useState(1);
@@ -58,6 +66,162 @@ export default function TopologAi() {
   const importInputRef = useRef(null);
   const [canvasSize, setCanvasSize] = useState({ w: 800, h: 600 });
 
+  const failureTarget = useTopologyUiStore(s => s.failureTarget);
+  const failureKind = useTopologyUiStore(s => s.failureKind);
+  const setFailureSim = useTopologyUiStore(s => s.setFailureSim);
+  const clearFailureSim = useTopologyUiStore(s => s.clearFailureSim);
+  const setPulseNodeId = useTopologyUiStore(s => s.setPulseNodeId);
+  const heatmapMode = useTopologyUiStore(s => s.heatmapMode);
+  const setHeatmapMode = useTopologyUiStore(s => s.setHeatmapMode);
+  const showTrafficFlow = useTopologyUiStore(s => s.showTrafficFlow);
+  const setShowTrafficFlow = useTopologyUiStore(s => s.setShowTrafficFlow);
+  const showComplianceView = useTopologyUiStore(s => s.showComplianceView);
+  const setShowComplianceView = useTopologyUiStore(s => s.setShowComplianceView);
+  const showPowerView = useTopologyUiStore(s => s.showPowerView);
+  const setShowPowerView = useTopologyUiStore(s => s.setShowPowerView);
+  const showApAdvisor = useTopologyUiStore(s => s.showApAdvisor);
+  const setShowApAdvisor = useTopologyUiStore(s => s.setShowApAdvisor);
+  const pathTraceSource = useTopologyUiStore(s => s.pathTraceSource);
+  const pathTraceTarget = useTopologyUiStore(s => s.pathTraceTarget);
+  const setPathTrace = useTopologyUiStore(s => s.setPathTrace);
+  const clearPathTrace = useTopologyUiStore(s => s.clearPathTrace);
+  const commandPaletteOpen = useTopologyUiStore(s => s.commandPaletteOpen);
+  const setCommandPaletteOpen = useTopologyUiStore(s => s.setCommandPaletteOpen);
+  const shortcutsOpen = useTopologyUiStore(s => s.shortcutsOpen);
+  const setShortcutsOpen = useTopologyUiStore(s => s.setShortcutsOpen);
+  const onboardingStep = useTopologyUiStore(s => s.onboardingStep);
+  const setOnboardingStep = useTopologyUiStore(s => s.setOnboardingStep);
+  const pulseNodeId = useTopologyUiStore(s => s.pulseNodeId);
+
+  const smartSnapshot = useMemo(
+    () =>
+      computeSmartTopology({
+        nodes,
+        links,
+        rooms,
+        vlans,
+        barriers,
+        vlanZones,
+        excludeNodeId: failureKind === 'node' ? failureTarget : null,
+        excludeLinkId: failureKind === 'link' ? failureTarget : null,
+      }),
+    [nodes, links, rooms, vlans, barriers, vlanZones, failureKind, failureTarget]
+  );
+
+  const baselineSnapshot = useMemo(
+    () => computeSmartTopology({ nodes, links, rooms, vlans, barriers, vlanZones }),
+    [nodes, links, rooms, vlans, barriers, vlanZones]
+  );
+
+  const failureImpactIds = useMemo(() => {
+    if (!failureTarget || failureKind !== 'node') return new Set();
+    const after = computeSmartTopology({
+      nodes,
+      links,
+      rooms,
+      vlans,
+      barriers,
+      vlanZones,
+      excludeNodeId: failureTarget,
+    });
+    const ids = new Set();
+    nodes.forEach((n) => {
+      const b = baselineSnapshot.deviceStates[n.id]?.smartState;
+      const a = after.deviceStates[n.id]?.smartState;
+      if (a !== b && (a === 'no_network' || a === 'isolated' || a === 'slow_network')) ids.add(n.id);
+    });
+    return ids;
+  }, [failureTarget, failureKind, nodes, links, rooms, vlans, barriers, vlanZones, baselineSnapshot]);
+
+  const pathTracePath = useMemo(() => {
+    if (!pathTraceSource || !pathTraceTarget) return null;
+    return shortestPath(nodes, links, pathTraceSource, pathTraceTarget);
+  }, [pathTraceSource, pathTraceTarget, nodes, links]);
+
+  const [scoreHistory, setScoreHistory] = useState([]);
+  useEffect(() => {
+    if (smartSnapshot?.overallScore == null) return;
+    setScoreHistory((h) => [...h.slice(-9), smartSnapshot.overallScore]);
+  }, [smartSnapshot?.overallScore]);
+
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem('topologai_tour_done')) setOnboardingStep(0);
+    } catch {
+      /* ignore */
+    }
+  }, [setOnboardingStep]);
+
+  const handleAutoFixFinding = useCallback(
+    (fix) => {
+      if (!fix) return;
+      pushHistory();
+      if (fix.type === 'set_node_vlan') {
+        setNodes((n) => n.map((x) => (x.id === fix.nodeId ? { ...x, vlan: fix.vlan } : x)));
+        showToast('VLAN updated');
+      }
+      if (fix.type === 'set_link_poe') {
+        const uplink = links.find((l) => l.target === fix.nodeId || l.source === fix.nodeId);
+        if (uplink) {
+          setLinks((ls) => ls.map((l) => (l.id === uplink.id ? { ...l, poe: 'poe' } : l)));
+          showToast('PoE set on uplink');
+        }
+      }
+    },
+    [links, pushHistory]
+  );
+
+  const handleHighlightFinding = useCallback(
+    (ids) => {
+      const id = ids?.[0];
+      if (id) {
+        setSelectedId(id);
+        setSelectedIds([]);
+        setPulseNodeId(id);
+        setTimeout(() => setPulseNodeId(null), 2500);
+      }
+    },
+    [setPulseNodeId]
+  );
+
+  const prevOverallRef = useRef(null);
+  const [scoreDelta, setScoreDelta] = useState(0);
+  useEffect(() => {
+    const o = smartSnapshot?.overallScore;
+    if (o == null) return;
+    const prev = prevOverallRef.current;
+    if (prev != null && prev !== o) {
+      setScoreDelta(o - prev);
+      const t = setTimeout(() => setScoreDelta(0), 2800);
+      prevOverallRef.current = o;
+      return () => clearTimeout(t);
+    }
+    prevOverallRef.current = o;
+  }, [smartSnapshot?.overallScore]);
+
+  const handleAutoFixAll = useCallback(
+    (findings) => {
+      const list = (findings || []).filter((f) => f.autoFix);
+      if (!list.length) return;
+      pushHistory();
+      list.forEach((f) => {
+        const fix = f.autoFix;
+        if (fix.type === 'set_node_vlan') {
+          setNodes((n) => n.map((x) => (x.id === fix.nodeId ? { ...x, vlan: fix.vlan } : x)));
+        }
+        if (fix.type === 'set_link_poe') {
+          setLinks((ls) => {
+            const uplink = ls.find((l) => l.target === fix.nodeId || l.source === fix.nodeId);
+            if (!uplink) return ls;
+            return ls.map((l) => (l.id === uplink.id ? { ...l, poe: 'poe' } : l));
+          });
+        }
+      });
+      showToast('Auto-fixes applied');
+    },
+    [pushHistory]
+  );
+
   // Measure canvas
   useEffect(() => {
     const observe = () => {
@@ -80,6 +244,8 @@ export default function TopologAi() {
       setLinks(data.links || []);
       setRooms(data.rooms || []);
       setVlans(data.vlans || []);
+      setBarriers(data.barriers || []);
+      setVlanZones(data.vlanZones || []);
       setCurrentPrompt(data.prompt || 'Shared topology');
       setInsightsOpen(true);
       showToast('Shared topology loaded', 'success');
@@ -95,19 +261,56 @@ export default function TopologAi() {
 
   // Push to undo history
   const pushHistory = useCallback(() => {
-    setHistory(h => [...h.slice(-19), { nodes, links, rooms, vlans }]);
-  }, [nodes, links, rooms, vlans]);
+    setHistory(h => [...h.slice(-19), { nodes, links, rooms, vlans, barriers, vlanZones, at: Date.now() }]);
+    setRedoStack([]);
+  }, [nodes, links, rooms, vlans, barriers, vlanZones]);
 
   const handleUndo = () => {
     if (!history.length) return;
+    setRedoStack(r => [{ nodes, links, rooms, vlans, barriers, vlanZones }, ...r.slice(0, 19)]);
     const prev = history[history.length - 1];
     setHistory(h => h.slice(0, -1));
     setNodes(prev.nodes);
     setLinks(prev.links);
     setRooms(prev.rooms);
     setVlans(prev.vlans);
+    setBarriers(prev.barriers || []);
+    setVlanZones(prev.vlanZones || []);
     showToast('Undo applied');
   };
+
+  const handleRedo = () => {
+    if (!redoStack.length) return;
+    setHistory(h => [...h.slice(-19), { nodes, links, rooms, vlans, barriers, vlanZones, at: Date.now() }]);
+    const next = redoStack[0];
+    setRedoStack(r => r.slice(1));
+    setNodes(next.nodes);
+    setLinks(next.links);
+    setRooms(next.rooms);
+    setVlans(next.vlans);
+    setBarriers(next.barriers || []);
+    setVlanZones(next.vlanZones || []);
+    showToast('Redo applied');
+  };
+
+  const handleJumpToHistoryIndex = useCallback(
+    (idx) => {
+      const snap = history[idx];
+      if (!snap) return;
+      setNodes(snap.nodes);
+      setLinks(snap.links);
+      setRooms(snap.rooms);
+      setVlans(snap.vlans);
+      setBarriers(snap.barriers || []);
+      setVlanZones(snap.vlanZones || []);
+      setHistory((h) => h.slice(0, idx));
+      setRedoStack([]);
+      setSelectedId(null);
+      setSelectedIds([]);
+      showToast('Restored snapshot');
+    },
+    [history]
+  );
 
   // Load topology from AI
   const loadTopology = (topology, prompt, isRefinement = false) => {
@@ -140,11 +343,21 @@ export default function TopologAi() {
         const existing = new Set(v.map(x => x.name));
         return [...v, ...topology.vlans.filter(x => !existing.has(x.name))];
       });
+      setBarriers(b => [
+        ...b,
+        ...(topology.barriers || []).map(br => ({ ...br, id: generateId('b') })),
+      ]);
+      setVlanZones(z => [
+        ...z,
+        ...(topology.vlanZones || []).map(vz => ({ ...vz, id: generateId('vz') })),
+      ]);
     } else {
       setNodes(topology.nodes);
       setLinks(topology.links);
       setRooms(topology.rooms);
       setVlans(topology.vlans);
+      setBarriers(topology.barriers || []);
+      setVlanZones(topology.vlanZones || []);
     }
     if (prompt) setCurrentPrompt(prompt);
     setSelectedId(null);
@@ -169,7 +382,7 @@ export default function TopologAi() {
 
   // Node operations
   const handleNodeMove = (id, x, y) => {
-    setNodes(n => n.map(node => node.id === id ? { ...node, x: Math.max(0, x), y: Math.max(0, y) } : node));
+    setNodes(n => n.map(node => (node.id === id ? { ...node, x, y } : node)));
   };
 
   const handleNodeAdd = (type, x, y) => {
@@ -236,6 +449,10 @@ export default function TopologAi() {
         setLinks(l => l.filter(x => x.id !== target.id));
       } else if (target.type === 'room') {
         setRooms(r => r.filter(x => x.id !== target.id));
+      } else if (target.type === 'barrier') {
+        setBarriers(b => b.filter(x => x.id !== target.id));
+      } else if (target.type === 'vlanZone') {
+        setVlanZones(z => z.filter(x => x.id !== target.id));
       }
       setSelectedId(null);
       setSelectedIds([]);
@@ -282,6 +499,10 @@ export default function TopologAi() {
     setRooms(r => r.map(x => x.id === id ? { ...x, ...dims } : x));
   };
 
+  const handleRoomMove = (id, x, y) => {
+    setRooms(r => r.map(room => room.id === id ? { ...room, x, y } : room));
+  };
+
   const handleRoomAdd = ({ x, y, w, h }) => {
     pushHistory();
     const newRoom = {
@@ -297,6 +518,18 @@ export default function TopologAi() {
   const handleDelete = () => {
     const selectedNodeIds = selectedIds.length > 1 ? selectedIds : selectedId ? [selectedId] : [];
     if (!selectedNodeIds.length && !selectedId) return;
+    if (selectedId && barriers.some(b => b.id === selectedId)) {
+      pushHistory();
+      setBarriers(b => b.filter(x => x.id !== selectedId));
+      setSelectedId(null);
+      return;
+    }
+    if (selectedId && vlanZones.some(z => z.id === selectedId)) {
+      pushHistory();
+      setVlanZones(z => z.filter(x => x.id !== selectedId));
+      setSelectedId(null);
+      return;
+    }
     pushHistory();
     const selectedNodeSet = new Set(selectedNodeIds);
     setNodes(n => n.filter(x => !selectedNodeSet.has(x.id)));
@@ -310,9 +543,47 @@ export default function TopologAi() {
     if (type === 'node') setNodes(n => n.map(x => x.id === id ? { ...x, ...form } : x));
     if (type === 'link') setLinks(l => l.map(x => x.id === id ? { ...x, ...form } : x));
     if (type === 'room') setRooms(r => r.map(x => x.id === id ? { ...x, ...form } : x));
+    if (type === 'barrier') setBarriers(b => b.map(x => x.id === id ? { ...x, ...form } : x));
+    if (type === 'vlanZone') setVlanZones(z => z.map(x => x.id === id ? { ...x, ...form } : x));
   };
 
-  const getPayload = () => createTopologyPayload({ nodes, links, rooms, vlans, prompt: currentPrompt });
+  const handleBarrierAdd = (barrier) => {
+    pushHistory();
+    const id = generateId('b');
+    setBarriers(b => [...b, { ...barrier, id }]);
+    setSelectedId(id);
+  };
+
+  const handleVlanZoneAdd = (zone) => {
+    pushHistory();
+    const id = generateId('vz');
+    setVlanZones(z => [...z, { ...zone, id }]);
+    setSelectedId(id);
+  };
+
+  const handleGhostApPlace = useCallback(
+    (gx, gy) => {
+      pushHistory();
+      const c = nodes.filter((n) => n.type === 'ap').length + 1;
+      const newNode = {
+        id: generateId('n'),
+        type: 'ap',
+        label: `Access Point ${c}`,
+        x: gx - 45,
+        y: gy - 28,
+        ip: '',
+        vlan: null,
+      };
+      setNodes((n) => [...n, newNode]);
+      setSelectedId(newNode.id);
+      setShowApAdvisor(false);
+      showToast('AP placed from advisor');
+    },
+    [nodes, pushHistory, setShowApAdvisor]
+  );
+
+  const getPayload = () =>
+    createTopologyPayload({ nodes, links, rooms, vlans, prompt: currentPrompt, barriers, vlanZones });
 
   const downloadText = (filename, body, type = 'text/plain') => {
     const blob = new Blob([body], { type });
@@ -359,7 +630,7 @@ export default function TopologAi() {
 
   // Save / Load
   const handleSave = () => {
-    const data = { nodes, links, rooms, vlans, prompt: currentPrompt };
+    const data = { nodes, links, rooms, vlans, barriers, vlanZones, prompt: currentPrompt };
     localStorage.setItem(CANVAS_STORAGE_KEY, JSON.stringify(data));
     showToast('Saved to browser', 'success');
   };
@@ -374,6 +645,8 @@ export default function TopologAi() {
       setLinks(data.links || []);
       setRooms(data.rooms || []);
       setVlans(data.vlans || []);
+      setBarriers(data.barriers || []);
+      setVlanZones(data.vlanZones || []);
       setCurrentPrompt(data.prompt || '');
       setSelectedId(null);
       setSelectedIds([]);
@@ -389,6 +662,8 @@ export default function TopologAi() {
     setLinks(data.links || []);
     setRooms(data.rooms || []);
     setVlans(data.vlans || []);
+    setBarriers(data.barriers || []);
+    setVlanZones(data.vlanZones || []);
     setCurrentPrompt(data.prompt || label);
     setSelectedId(null);
     setSelectedIds([]);
@@ -411,7 +686,7 @@ export default function TopologAi() {
 
   const handleReset = () => {
     pushHistory();
-    setNodes([]); setLinks([]); setRooms([]); setVlans([]);
+    setNodes([]); setLinks([]); setRooms([]); setVlans([]); setBarriers([]); setVlanZones([]);
     setSelectedId(null); setCurrentPrompt('');
     setSelectedIds([]);
     showToast('Canvas cleared');
@@ -441,7 +716,7 @@ export default function TopologAi() {
   };
 
   const handleExportBrief = () => {
-    const body = generateDesignBrief(getPayload());
+    const body = generateDesignBrief(getPayload(), smartSnapshot);
     downloadText('topology-design-brief.md', body, 'text/markdown');
     showToast('Design brief exported', 'success');
   };
@@ -562,20 +837,39 @@ export default function TopologAi() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-      if (e.key === 'Escape') { setConnectingFrom(null); setMode('select'); }
+      if (e.key === 'Escape') {
+        setConnectingFrom(null);
+        setMode('select');
+        clearFailureSim();
+        setCommandPaletteOpen(false);
+        setShortcutsOpen(false);
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') { if (selectedId || selectedIds.length) handleDelete(); }
       if (e.key === 'v' || e.key === 'V') setMode('select');
       if (e.key === 'c' || e.key === 'C') setMode('connect');
       if (e.key === 'h' || e.key === 'H') setMode('pan');
+      if (e.key === 'b' || e.key === 'B') setMode('barrier');
+      if (e.key === 'z' && (e.metaKey || e.ctrlKey) && e.shiftKey) { e.preventDefault(); handleRedo(); return; }
       if (e.key === 'i' || e.key === 'I') setInsightsOpen(open => !open);
       if (e.key === 'p' || e.key === 'P') setPropsPanelOpen(open => !open);
       if (e.key === 'r' || e.key === 'R') setMode('room');
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); handleUndo(); }
+      if (e.key === 'f' || e.key === 'F') {
+        if (selectedId && nodes.some(n => n.id === selectedId)) setFailureSim(selectedId, 'node');
+        else if (selectedId && links.some(l => l.id === selectedId)) setFailureSim(selectedId, 'link');
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'y') { e.preventDefault(); handleRedo(); }
       if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); handleSave(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setCommandPaletteOpen(true); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'h') {
+        e.preventDefault();
+        setHeatmapMode(m => (m === 'signal' ? null : 'signal'));
+      }
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) { e.preventDefault(); setShortcutsOpen(true); }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, selectedIds, mode]);
+  }, [selectedId, selectedIds, mode, nodes, links, clearFailureSim, setCommandPaletteOpen, setShortcutsOpen, setFailureSim, setHeatmapMode]);
 
   const hasTopology = nodes.length > 0;
   const hasSelection = !!selectedId || selectedIds.length > 1;
@@ -653,11 +947,41 @@ export default function TopologAi() {
               zoom={zoom} setZoom={setZoom} setPan={setPan}
               onDelete={handleDelete}
               onUndo={handleUndo}
+              onRedo={handleRedo}
+              canRedo={redoStack.length > 0}
               hasSelection={hasSelection}
+              heatmapMode={heatmapMode}
+              setHeatmapMode={setHeatmapMode}
+              showTrafficFlow={showTrafficFlow}
+              setShowTrafficFlow={setShowTrafficFlow}
+              showComplianceView={showComplianceView}
+              setShowComplianceView={setShowComplianceView}
+              showPowerView={showPowerView}
+              setShowPowerView={setShowPowerView}
+              showApAdvisor={showApAdvisor}
+              setShowApAdvisor={setShowApAdvisor}
+              failureActive={!!failureTarget}
+              onClearFailure={clearFailureSim}
+              findingCount={smartSnapshot?.findings?.length || 0}
+              onExport={() => showToast('Use Top bar for full export options')}
             />
           </div>
           <TopologyCanvas
             nodes={nodes} links={links} rooms={rooms} vlans={vlans}
+            barriers={barriers}
+            vlanZones={vlanZones}
+            smartSnapshot={smartSnapshot}
+            heatmapMode={heatmapMode}
+            showTrafficFlow={showTrafficFlow}
+            showComplianceView={showComplianceView}
+            showPowerView={showPowerView}
+            showApAdvisor={showApAdvisor}
+            failureImpactIds={failureImpactIds}
+            pathTracePath={pathTracePath}
+            pulseNodeId={pulseNodeId}
+            onBarrierAdd={handleBarrierAdd}
+            onVlanZoneAdd={handleVlanZoneAdd}
+            onGhostApPlace={handleGhostApPlace}
             selectedId={selectedId} setSelectedId={setSelectedId}
             selectedIds={selectedIds} onMultiSelect={setSelectedIds}
             mode={mode} setMode={setMode}
@@ -668,6 +992,7 @@ export default function TopologAi() {
             onLinkDelete={handleLinkDelete}
             onRoomAdd={handleRoomAdd}
             onRoomResize={handleRoomResize}
+            onRoomMove={handleRoomMove}
             onBeforeChange={pushHistory}
             zoom={zoom} pan={pan}
             setZoom={setZoom} setPan={setPan}
@@ -682,7 +1007,7 @@ export default function TopologAi() {
           {/* Minimap */}
           {hasTopology && (
             <MiniMap
-              nodes={nodes} links={links} rooms={rooms}
+              nodes={nodes} links={links} rooms={rooms} barriers={barriers}
               zoom={zoom} pan={pan}
               canvasSize={canvasSize}
             />
@@ -693,6 +1018,14 @@ export default function TopologAi() {
               nodes={nodes}
               links={links}
               vlans={vlans}
+              smartSnapshot={smartSnapshot}
+              scoreHistory={scoreHistory}
+              scoreDelta={scoreDelta}
+              historySnapshots={history}
+              onJumpHistory={handleJumpToHistoryIndex}
+              onHighlightFinding={handleHighlightFinding}
+              onAutoFixFinding={handleAutoFixFinding}
+              onAutoFixAll={handleAutoFixAll}
               onAutoLayout={handleAutoLayout}
               onOpenVlanManager={() => setShowVlanManager(true)}
               onTemplates={() => setShowTemplates(true)}
@@ -716,6 +1049,50 @@ export default function TopologAi() {
               Click and drag to draw a room - Esc to cancel
             </div>
           )}
+          {mode === 'barrier' && (
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-primary/90 text-primary-foreground text-xs px-3 py-1.5 rounded-full shadow-lg">
+              Drag to draw a wall / barrier — affects Wi‑Fi in intelligence engine
+            </div>
+          )}
+          {mode === 'vlanzone' && (
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-primary/90 text-primary-foreground text-xs px-3 py-1.5 rounded-full shadow-lg">
+              Drag a VLAN overlay region — Esc to cancel
+            </div>
+          )}
+
+          {selectedIds.length >= 2 && (
+            <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-border/80 bg-card/95 px-3 py-2 shadow-xl backdrop-blur-md">
+              <span className="text-[10px] text-muted-foreground">{selectedIds.length} selected</span>
+              <button
+                type="button"
+                className="text-[10px] rounded-lg bg-primary px-2.5 py-1 font-medium text-primary-foreground"
+                onClick={() => setPathTrace(selectedIds[0], selectedIds[1])}
+              >
+                Trace route
+              </button>
+              <button
+                type="button"
+                className="text-[10px] rounded-lg border border-border px-2.5 py-1 text-foreground/80 hover:bg-muted"
+                onClick={() => clearPathTrace()}
+              >
+                Clear trace
+              </button>
+              <button
+                type="button"
+                className="text-[10px] rounded-lg border border-border px-2.5 py-1 text-foreground/80 hover:bg-muted"
+                onClick={() => {
+                  pushHistory();
+                  const sel = nodes.filter(n => selectedIds.includes(n.id));
+                  if (sel.length < 2) return;
+                  const minX = Math.min(...sel.map(n => n.x));
+                  setNodes(n => n.map(node => (selectedIds.includes(node.id) ? { ...node, x: minX } : node)));
+                  showToast('Aligned horizontally');
+                }}
+              >
+                Align H
+              </button>
+            </div>
+          )}
 
           {/* Toast */}
           {toast && (
@@ -731,16 +1108,18 @@ export default function TopologAi() {
         {hasSelection && propsPanelOpen && !focusMode && (
           <PropertiesPanel
             selectedId={selectedId}
-            nodes={nodes} links={links} rooms={rooms} vlans={vlans}
+            nodes={nodes} links={links} rooms={rooms} barriers={barriers} vlanZones={vlanZones} vlans={vlans}
+            deviceStates={smartSnapshot?.deviceStates}
             onUpdate={handleUpdate}
             onDelete={handleDelete}
+            onSelectNode={(id) => { setSelectedId(id); setSelectedIds([]); }}
           />
         )}
       </div>
 
       {/* Stats bar */}
       <StatsPanel
-        nodes={nodes} links={links} vlans={vlans} rooms={rooms}
+        nodes={nodes} links={links} vlans={vlans} rooms={rooms} barriers={barriers}
         highlightVlan={highlightVlan}
         setHighlightVlan={setHighlightVlan}
       />
@@ -794,6 +1173,32 @@ export default function TopologAi() {
       {showTemplates && (
         <TemplateGallery onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} />
       )}
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        onTemplates={() => setShowTemplates(true)}
+        onVlanManager={() => setShowVlanManager(true)}
+        onAutoLayout={handleAutoLayout}
+        onToggleHeatmap={() => setHeatmapMode(m => (m === 'signal' ? null : 'signal'))}
+        onToggleTraffic={() => setShowTrafficFlow(v => !v)}
+        onToggleCompliance={() => setShowComplianceView(v => !v)}
+        onTogglePower={() => setShowPowerView(v => !v)}
+        onToggleApAdvisor={() => setShowApAdvisor(v => !v)}
+        onExportBrief={handleExportBrief}
+        onSave={handleSave}
+      />
+      <KeyboardShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <OnboardingTour
+        step={onboardingStep}
+        onStep={setOnboardingStep}
+        onDismiss={() => {
+          try {
+            localStorage.setItem('topologai_tour_done', '1');
+          } catch { /* ignore */ }
+          setOnboardingStep(null);
+        }}
+      />
     </div>
   );
 }

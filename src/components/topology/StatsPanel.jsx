@@ -1,8 +1,19 @@
 import { DEVICE_TYPES } from '../../lib/topologyData';
+import { mergeLinkDefaults } from '../../lib/smartNetworkEngine';
 
-export default function StatsPanel({ nodes, links, vlans, rooms, highlightVlan, setHighlightVlan }) {
+export default function StatsPanel({ nodes, links, vlans, rooms, barriers = [], highlightVlan, setHighlightVlan }) {
   const typeCounts = {};
   nodes.forEach(n => { typeCounts[n.type] = (typeCounts[n.type] || 0) + 1; });
+
+  const apCount = nodes.filter(n => n.type === 'ap').length;
+  let estCableM = 0;
+  links.forEach(l => {
+    const a = nodes.find(n => n.id === l.source);
+    const b = nodes.find(n => n.id === l.target);
+    if (!a || !b) return;
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    estCableM += mergeLinkDefaults(l).cableLengthM ?? d * 0.1524;
+  });
 
   return (
     <div className="bg-card border-t border-border px-4 py-2 flex items-center gap-6 text-[10px] text-muted-foreground overflow-x-auto flex-shrink-0">
@@ -11,6 +22,9 @@ export default function StatsPanel({ nodes, links, vlans, rooms, highlightVlan, 
         <span className="text-foreground font-medium">{nodes.length} Devices</span>
         <span>{links.length} Links</span>
         <span>{rooms.length} Rooms</span>
+        <span>{barriers.length} Barriers</span>
+        <span>{apCount} APs</span>
+        <span className="font-mono text-[9px] opacity-80">~{Math.round(estCableM)}m cable</span>
       </div>
 
       <div className="w-px h-4 bg-border flex-shrink-0" />

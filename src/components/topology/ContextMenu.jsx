@@ -68,6 +68,16 @@ export default function ContextMenu({ x, y, target, onAction, onClose }) {
         <Item icon={Trash2} label="Delete room" action="delete" danger />
       </>
     );
+    if (target?.type === 'barrier') return (
+      <>
+        <Item icon={Trash2} label="Delete barrier" action="delete" danger />
+      </>
+    );
+    if (target?.type === 'vlanZone') return (
+      <>
+        <Item icon={Trash2} label="Delete VLAN zone" action="delete" danger />
+      </>
+    );
     // Canvas
     return (
       <>
@@ -95,6 +105,8 @@ export default function ContextMenu({ x, y, target, onAction, onClose }) {
             {target.type === 'node' ? target.item?.label || 'Device'
               : target.type === 'link' ? 'Connection'
               : target.type === 'room' ? target.item?.label || 'Room'
+              : target.type === 'barrier' ? target.item?.label || 'Barrier'
+              : target.type === 'vlanZone' ? target.item?.label || 'VLAN zone'
               : 'Canvas'}
           </span>
         </div>

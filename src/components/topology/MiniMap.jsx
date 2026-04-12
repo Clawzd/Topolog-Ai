@@ -5,7 +5,7 @@ const MM_H = 100;
 const NODE_W = 90;
 const NODE_H = 50;
 
-export default function MiniMap({ nodes, links, rooms, zoom, pan, canvasSize }) {
+export default function MiniMap({ nodes, links, rooms, barriers = [], zoom, pan, canvasSize }) {
   const bounds = useMemo(() => {
     if (!nodes.length) return { minX: 0, minY: 0, maxX: 800, maxY: 600 };
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -21,9 +21,19 @@ export default function MiniMap({ nodes, links, rooms, zoom, pan, canvasSize }) 
       maxX = Math.max(maxX, r.x + r.w);
       maxY = Math.max(maxY, r.y + r.h);
     });
+    barriers.forEach(b => {
+      const x1 = b.x1 ?? b.x;
+      const y1 = b.y1 ?? b.y;
+      const x2 = b.x2 ?? b.x + (b.dx || 0);
+      const y2 = b.y2 ?? b.y + (b.dy || 0);
+      minX = Math.min(minX, x1, x2);
+      minY = Math.min(minY, y1, y2);
+      maxX = Math.max(maxX, x1, x2);
+      maxY = Math.max(maxY, y1, y2);
+    });
     const pad = 40;
     return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
-  }, [nodes, rooms]);
+  }, [nodes, rooms, barriers]);
 
   const sceneW = bounds.maxX - bounds.minX;
   const sceneH = bounds.maxY - bounds.minY;
@@ -61,6 +71,19 @@ export default function MiniMap({ nodes, links, rooms, zoom, pan, canvasSize }) 
               strokeWidth={0.5}
               rx={1}
             />
+          );
+        })}
+
+        {(barriers || []).map(b => {
+          const x1 = b.x1 ?? b.x;
+          const y1 = b.y1 ?? b.y;
+          const x2 = b.x2 ?? b.x + (b.dx || 0);
+          const y2 = b.y2 ?? b.y + (b.dy || 0);
+          const p1 = toMM(x1, y1);
+          const p2 = toMM(x2, y2);
+          return (
+            <line key={b.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+              stroke="rgba(148,163,184,0.65)" strokeWidth={1} />
           );
         })}
 

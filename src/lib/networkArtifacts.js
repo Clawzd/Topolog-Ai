@@ -88,7 +88,7 @@ function findSinglePointsOfFailure(nodes, links) {
   return critical;
 }
 
-export function createTopologyPayload({ nodes, links, rooms, vlans, prompt = '' }) {
+export function createTopologyPayload({ nodes, links, rooms, vlans, prompt = '', barriers = [], vlanZones = [] }) {
   return {
     version: 1,
     prompt,
@@ -96,6 +96,8 @@ export function createTopologyPayload({ nodes, links, rooms, vlans, prompt = '' 
     links,
     rooms,
     vlans,
+    barriers,
+    vlanZones,
     exportedAt: new Date().toISOString(),
   };
 }
@@ -263,9 +265,17 @@ export function validateTopology({ nodes, links, vlans }) {
   };
 }
 
-export function generateDesignBrief(payload) {
+export function generateDesignBrief(payload, smartSnapshot = null) {
   const validation = validateTopology(payload);
   const nodeMap = byId(payload.nodes);
+
+  const bom = {};
+  payload.nodes.forEach((n) => {
+    const k = n.type || 'unknown';
+    bom[k] = (bom[k] || 0) + 1;
+  });
+  const topIssues = smartSnapshot?.findings?.slice(0, 5).map((f) => `- ${f.severity}: ${f.title} — ${f.detail}`) || [];
+  const topFixes = smartSnapshot?.findings?.flatMap((f) => f.suggestions || []).slice(0, 5) || [];
 
   const lines = [
     '# TopologAi Design Brief',
@@ -277,6 +287,7 @@ export function generateDesignBrief(payload) {
     `- Devices: ${payload.nodes.length}`,
     `- Links: ${payload.links.length}`,
     `- Rooms/Zones: ${payload.rooms.length}`,
+    `- Barriers: ${(payload.barriers || []).length}`,
     `- VLANs: ${payload.vlans.length}`,
     '',
     '## VLAN Plan',
@@ -305,6 +316,27 @@ export function generateDesignBrief(payload) {
     ...(validation.findings.length
       ? validation.findings.map(item => `- ${item.severity.toUpperCase()}: ${item.title} - ${item.detail}`)
       : ['- No major design issues found.']),
+    '',
+    ...(smartSnapshot
+      ? [
+          '## Smart engine scores',
+          `- Coverage: ${Math.round(smartSnapshot.overallScores?.coverage ?? 0)}`,
+          `- Capacity: ${Math.round(smartSnapshot.overallScores?.capacity ?? 0)}`,
+          `- Security: ${Math.round(smartSnapshot.overallScores?.security ?? 0)}`,
+          `- Resilience: ${Math.round(smartSnapshot.overallScores?.resilience ?? 0)}`,
+          `- Power: ${Math.round(smartSnapshot.overallScores?.power ?? 0)}`,
+          `- Overall: ${smartSnapshot.overallScore ?? validation.score}`,
+          '',
+          '## Top smart findings',
+          ...(topIssues.length ? topIssues : ['- None']),
+          '',
+          '## Top recommendations',
+          ...(topFixes.length ? topFixes.map((t) => `- ${t}`) : ['- Review findings panel for next steps.']),
+          '',
+        ]
+      : []),
+    '## Bill of materials (counts)',
+    ...Object.entries(bom).map(([t, c]) => `- ${t}: ${c}`),
     '',
   ].filter(line => line !== '');
 

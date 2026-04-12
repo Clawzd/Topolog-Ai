@@ -1,4 +1,4 @@
-import { LayoutGrid, Network, Sparkles, Wand2, ArrowDown } from 'lucide-react';
+import { LayoutGrid, Sparkles, Wand2, ArrowDown } from 'lucide-react';
 
 export default function EmptyState({ onTemplates, onQuickStart }) {
   return (

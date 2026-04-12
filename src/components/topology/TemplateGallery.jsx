@@ -7,7 +7,7 @@ const EXTRA_TEMPLATES = [
     id: 'zero-trust-branch',
     name: 'Zero-Trust Branch',
     description: 'Identity-aware branch with guest isolation and app gateway',
-    icon: 'ZT',
+    icon: '🔐',
     prompt: 'Zero trust branch with SD-WAN edge, policy firewall, corporate WiFi, guest WiFi, and identity proxy',
     data: generatePromptTopology('zero trust branch with SD-WAN edge and identity proxy'),
   },
@@ -15,7 +15,7 @@ const EXTRA_TEMPLATES = [
     id: 'smart-warehouse',
     name: 'Smart Warehouse',
     description: 'Operations, camera, scanner, and IoT VLAN design',
-    icon: 'WH',
+    icon: '📦',
     prompt: 'Warehouse with IoT sensors, cameras, scanners, and protected operations VLAN',
     data: generatePromptTopology('warehouse with IoT sensors and protected operations VLAN'),
   },
@@ -43,11 +43,16 @@ export default function TemplateGallery({ onSelect, onClose }) {
             <button
               key={t.id}
               onClick={() => { onSelect(t); onClose(); }}
-              className="group text-left bg-muted hover:bg-secondary border border-border hover:border-primary/40 rounded-lg p-4 transition-all"
+              className="group text-left bg-muted hover:bg-secondary border border-border hover:border-primary/40 rounded-xl p-4 transition-all"
             >
-              <div className="flex items-start gap-3">
-                <span className="text-3xl mt-0.5">{t.icon}</span>
-                <div className="flex-1 min-w-0">
+              <div className="flex items-start gap-4">
+                <div
+                  className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/80 text-[2.35rem] leading-none shadow-inner"
+                  aria-hidden
+                >
+                  {t.icon}
+                </div>
+                <div className="flex-1 min-w-0 pt-0.5">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-medium text-foreground">{t.name}</h3>
                     <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />

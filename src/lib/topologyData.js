@@ -366,13 +366,51 @@ export const DEVICE_TYPES = {
     };
   }
 
+  function hospitalWingTopology() {
+    return {
+      nodes: [
+        { id: 'n1', type: 'cloud', label: 'Internet', x: 400, y: 40, ip: '0.0.0.0/0', vlan: null },
+        { id: 'n2', type: 'firewall', label: 'Edge Firewall', x: 400, y: 130, ip: '172.16.0.1', vlan: null },
+        { id: 'n3', type: 'router', label: 'Clinical Router', x: 400, y: 220, ip: '172.16.1.1', vlan: null },
+        { id: 'n4', type: 'switch', label: 'IDF Switch', x: 400, y: 320, ip: '172.16.2.1', vlan: null },
+        { id: 'n5', type: 'ap', label: 'AP - Ward A', x: 180, y: 420, ip: '172.16.10.10', vlan: 'VLAN10' },
+        { id: 'n6', type: 'ap', label: 'AP - Ward B', x: 620, y: 420, ip: '172.16.10.11', vlan: 'VLAN10' },
+        { id: 'n7', type: 'tablet', label: 'Nurse Tablet 1', x: 120, y: 520, ip: '172.16.10.50', vlan: 'VLAN10' },
+        { id: 'n8', type: 'laptop', label: 'Doctor Laptop', x: 280, y: 520, ip: '172.16.10.51', vlan: 'VLAN10' },
+        { id: 'n9', type: 'camera', label: 'Hall Camera', x: 520, y: 520, ip: '172.16.30.5', vlan: 'VLAN30' },
+        { id: 'n10', type: 'nas', label: 'PACS NAS', x: 660, y: 520, ip: '172.16.20.2', vlan: 'VLAN20' },
+      ],
+      links: [
+        { id: 'l1', source: 'n1', target: 'n2', type: 'wan', label: 'WAN' },
+        { id: 'l2', source: 'n2', target: 'n3', type: 'fiber', label: '' },
+        { id: 'l3', source: 'n3', target: 'n4', type: 'fiber', label: '' },
+        { id: 'l4', source: 'n4', target: 'n5', type: 'ethernet', label: '', poe: 'poe' },
+        { id: 'l5', source: 'n4', target: 'n6', type: 'ethernet', label: '', poe: 'poe' },
+        { id: 'l6', source: 'n4', target: 'n7', type: 'wifi', label: '' },
+        { id: 'l7', source: 'n4', target: 'n8', type: 'wifi', label: '' },
+        { id: 'l8', source: 'n4', target: 'n9', type: 'ethernet', label: '', poe: 'poe' },
+        { id: 'l9', source: 'n4', target: 'n10', type: 'ethernet', label: '' },
+      ],
+      rooms: [
+        { id: 'r1', label: 'Wing A', x: 80, y: 380, w: 280, h: 220, color: 'rgba(59,130,246,0.08)', zoneType: 'office', securityLevel: 'restricted' },
+        { id: 'r2', label: 'Wing B', x: 440, y: 380, w: 280, h: 220, color: 'rgba(16,185,129,0.08)', zoneType: 'office', securityLevel: 'restricted' },
+      ],
+      vlans: [
+        { id: 'v1', name: 'VLAN10', label: 'Clinical WiFi', color: '#3b82f6', subnet: '172.16.10.0/24' },
+        { id: 'v2', name: 'VLAN20', label: 'Imaging / PACS', color: '#8b5cf6', subnet: '172.16.20.0/24' },
+        { id: 'v3', name: 'VLAN30', label: 'Physical Security', color: '#ef4444', subnet: '172.16.30.0/24' },
+      ],
+      summary: 'Hospital wing with segmented clinical WiFi, imaging VLAN, and camera security zone.',
+    };
+  }
+
   // Templates
   export const TEMPLATES = [
     {
       id: 'office',
       name: 'Corporate Office',
       description: 'Multi-department office with VLANs, firewall, and WiFi',
-      icon: 'OFF',
+      icon: '🏢',
       prompt: 'Corporate office with 3 departments, firewall, core switch, WiFi access points, file server, and 10 workstations',
       data: officeTopology(),
     },
@@ -380,7 +418,7 @@ export const DEVICE_TYPES = {
       id: 'home',
       name: 'Home Network',
       description: 'Residential network with WiFi mesh and NAS',
-      icon: 'HOME',
+      icon: '🏠',
       prompt: 'Home network with dual WiFi access points, NAS storage, and IP cameras',
       data: homeTopology(),
     },
@@ -388,7 +426,7 @@ export const DEVICE_TYPES = {
       id: 'datacenter',
       name: 'Data Center',
       description: 'High-availability data center with redundant paths',
-      icon: 'DC',
+      icon: '🗄️',
       prompt: 'Data center with redundant core routers, top-of-rack switches, web servers, and database tier',
       data: dataCenterTopology(),
     },
@@ -396,7 +434,7 @@ export const DEVICE_TYPES = {
       id: 'campus',
       name: 'Campus / School',
       description: 'Multi-building campus with student/faculty VLANs',
-      icon: 'CAMP',
+      icon: '🎓',
       prompt: 'University campus with 3 buildings, student and faculty VLANs, LMS server, and library WiFi',
       data: campusTopology(),
     },
@@ -404,9 +442,17 @@ export const DEVICE_TYPES = {
       id: 'retail',
       name: 'Retail Store',
       description: 'PCI-compliant POS network with guest WiFi',
-      icon: 'SHOP',
+      icon: '🛒',
       prompt: 'Retail store with POS terminals, guest WiFi, security cameras, and back office server',
       data: retailTopology(),
+    },
+    {
+      id: 'hospital',
+      name: 'Hospital Wing',
+      description: 'Clinical WiFi, imaging VLAN, and secure camera segment',
+      icon: '🏥',
+      prompt: 'Hospital wing with nurse WiFi, PACS storage, and security cameras on isolated VLAN',
+      data: hospitalWingTopology(),
     },
   ];
 
