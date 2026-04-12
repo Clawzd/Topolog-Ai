@@ -568,7 +568,7 @@ export default function TopologyCanvas({
     const rect = svgRef.current.getBoundingClientRect();
     const mx = e.clientX - rect.left, my = e.clientY - rect.top;
     setZoom(z => {
-      const nz = Math.min(3, Math.max(0.05, z * delta));
+      const nz = Math.min(3, Math.max(0.5, z * delta));
       setPan(p => ({ x: mx - (mx - p.x) * (nz / z), y: my - (my - p.y) * (nz / z) }));
       return nz;
     });

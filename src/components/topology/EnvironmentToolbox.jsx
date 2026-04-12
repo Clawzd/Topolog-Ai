@@ -25,12 +25,12 @@ const TOOLS = [
 
 export default function EnvironmentToolbox({ mode, setMode }) {
   return (
-    <div className="w-full flex-shrink-0 border-t border-border bg-card/90 backdrop-blur-sm flex flex-col max-h-[42vh]">
-      <div className="px-3 pt-2 pb-1">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-card/90 backdrop-blur-sm">
+      <div className="flex-shrink-0 px-3 pt-2 pb-1">
         <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Environment</h2>
-        <p className="text-[9px] text-muted-foreground/80 mt-0.5 leading-snug">v3 toolbox — click a tool, then draw on canvas</p>
+        <p className="mt-0.5 text-[9px] leading-snug text-muted-foreground/80">v3 toolbox — click a tool, then draw on canvas</p>
       </div>
-      <div className="px-2 pb-2 grid grid-cols-1 gap-1 overflow-y-auto min-h-0">
+      <div className="min-h-0 flex-1 grid grid-cols-1 gap-1 overflow-y-auto px-2 pb-2">
         {TOOLS.map((t) => {
           const Icon = t.icon;
           const active = mode === t.id;

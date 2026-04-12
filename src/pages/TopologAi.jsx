@@ -108,8 +108,6 @@ export default function TopologAi() {
   const setShowApAdvisor = useTopologyUiStore(s => s.setShowApAdvisor);
   const pathTraceSource = useTopologyUiStore(s => s.pathTraceSource);
   const pathTraceTarget = useTopologyUiStore(s => s.pathTraceTarget);
-  const setPathTrace = useTopologyUiStore(s => s.setPathTrace);
-  const clearPathTrace = useTopologyUiStore(s => s.clearPathTrace);
   const commandPaletteOpen = useTopologyUiStore(s => s.commandPaletteOpen);
   const setCommandPaletteOpen = useTopologyUiStore(s => s.setCommandPaletteOpen);
   const shortcutsOpen = useTopologyUiStore(s => s.shortcutsOpen);
@@ -1304,10 +1302,10 @@ export default function TopologAi() {
         </button>
         )}
 
-        {/* Left: device palette + v3 environment toolbox */}
+        {/* Left: device palette (majority of height) + environment toolbox (capped) */}
         {!focusMode && (
-          <div className="flex flex-col flex-shrink-0 h-full min-h-0 w-[17.5rem] sm:w-72 border-r border-border bg-card/80">
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <div className="flex h-full min-h-0 w-[18rem] shrink-0 flex-col border-r border-border bg-card/80 sm:w-80">
+            <div className="flex min-h-0 flex-[3] flex-col overflow-hidden basis-0">
               <LeftPanel
                 onDeviceDragStart={handleDeviceDragStart}
                 onPatternDragStart={handlePatternDragStart}
@@ -1318,7 +1316,9 @@ export default function TopologAi() {
                 placementPattern={placementPattern}
               />
             </div>
-            <EnvironmentToolbox mode={mode} setMode={setMode} />
+            <div className="flex min-h-0 max-h-[min(28vh,248px)] shrink-0 flex-col overflow-hidden border-t border-border/80">
+              <EnvironmentToolbox mode={mode} setMode={setMode} />
+            </div>
           </div>
         )}
 
@@ -1505,121 +1505,6 @@ export default function TopologAi() {
           {mode === 'vlanzone' && (
             <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-primary/90 text-primary-foreground text-xs px-3 py-1.5 rounded-full shadow-lg">
               Drag a VLAN overlay region — Esc to cancel
-            </div>
-          )}
-
-          {selectedIds.length >= 2 && (
-            <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-border/80 bg-card/95 px-3 py-2 shadow-xl backdrop-blur-md">
-              <span className="text-[10px] text-muted-foreground">{selectedIds.length} selected</span>
-              <button
-                type="button"
-                className="text-[10px] rounded-lg bg-primary px-2.5 py-1 font-medium text-primary-foreground"
-                onClick={() => setPathTrace(selectedIds[0], selectedIds[1])}
-              >
-                Trace route
-              </button>
-              <button
-                type="button"
-                className="text-[10px] rounded-lg border border-border px-2.5 py-1 text-foreground/80 hover:bg-muted"
-                onClick={() => clearPathTrace()}
-              >
-                Clear trace
-              </button>
-              <button
-                type="button"
-                className="text-[10px] rounded-lg border border-border px-2.5 py-1 text-foreground/80 hover:bg-muted"
-                onClick={() => {
-                  pushHistory();
-                  const gid = `g_${Date.now()}`;
-                  setNodes((n) => n.map((node) => (selectedIds.includes(node.id) ? { ...node, groupId: gid } : node)));
-                  showToast('Grouped selection (move together)');
-                }}
-              >
-                Group
-              </button>
-              <button
-                type="button"
-                className="text-[10px] rounded-lg border border-destructive/40 px-2.5 py-1 text-destructive hover:bg-destructive/10"
-                onClick={() => {
-                  pushHistory();
-                  const set = new Set(selectedIds);
-                  setNodes((n) => n.filter((x) => !set.has(x.id)));
-                  setLinks((l) => l.filter((x) => !set.has(x.source) && !set.has(x.target)));
-                  setSelectedIds([]);
-                  setSelectedId(null);
-                  showToast('Deleted selection');
-                }}
-              >
-                Delete
-              </button>
-              <button
-                type="button"
-                className="text-[10px] rounded-lg border border-border px-2.5 py-1 text-foreground/80 hover:bg-muted"
-                onClick={() => {
-                  pushHistory();
-                  const sel = nodes.filter(n => selectedIds.includes(n.id));
-                  if (sel.length < 2) return;
-                  const minX = Math.min(...sel.map(n => n.x));
-                  setNodes(n => n.map(node => (selectedIds.includes(node.id) ? { ...node, x: minX } : node)));
-                  showToast('Aligned horizontally');
-                }}
-              >
-                Align H
-              </button>
-              <button
-                type="button"
-                className="text-[10px] rounded-lg border border-border px-2.5 py-1 text-foreground/80 hover:bg-muted"
-                onClick={() => {
-                  pushHistory();
-                  const sel = nodes.filter(n => selectedIds.includes(n.id));
-                  if (sel.length < 2) return;
-                  const minY = Math.min(...sel.map(n => n.y));
-                  setNodes(n => n.map(node => (selectedIds.includes(node.id) ? { ...node, y: minY } : node)));
-                  showToast('Aligned vertically');
-                }}
-              >
-                Align V
-              </button>
-              <button
-                type="button"
-                className="text-[10px] rounded-lg border border-border px-2.5 py-1 text-foreground/80 hover:bg-muted"
-                onClick={() => {
-                  pushHistory();
-                  const sel = nodes.filter(n => selectedIds.includes(n.id)).sort((a, b) => a.x - b.x);
-                  if (sel.length < 3) { showToast('Pick 3+ nodes to distribute'); return; }
-                  const minX = sel[0].x;
-                  const maxX = sel[sel.length - 1].x;
-                  const step = (maxX - minX) / (sel.length - 1);
-                  setNodes((n) => n.map((node) => {
-                    const idx = sel.findIndex((s) => s.id === node.id);
-                    if (idx < 0) return node;
-                    return { ...node, x: minX + step * idx };
-                  }));
-                  showToast('Distributed horizontally');
-                }}
-              >
-                Distrib H
-              </button>
-              <button
-                type="button"
-                className="text-[10px] rounded-lg border border-border px-2.5 py-1 text-foreground/80 hover:bg-muted"
-                onClick={() => {
-                  pushHistory();
-                  const sel = nodes.filter(n => selectedIds.includes(n.id)).sort((a, b) => a.y - b.y);
-                  if (sel.length < 3) { showToast('Pick 3+ nodes to distribute'); return; }
-                  const minY = sel[0].y;
-                  const maxY = sel[sel.length - 1].y;
-                  const step = (maxY - minY) / (sel.length - 1);
-                  setNodes((n) => n.map((node) => {
-                    const idx = sel.findIndex((s) => s.id === node.id);
-                    if (idx < 0) return node;
-                    return { ...node, y: minY + step * idx };
-                  }));
-                  showToast('Distributed vertically');
-                }}
-              >
-                Distrib V
-              </button>
             </div>
           )}
 

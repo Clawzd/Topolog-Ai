@@ -113,7 +113,7 @@ export default function Toolbar({
 
       <Divider />
 
-      <ToolBtn onClick={() => setZoom(z => Math.max(0.05, z - 0.15))} title="Zoom Out" shortcut="-">
+      <ToolBtn onClick={() => setZoom(z => Math.max(0.5, z - 0.15))} title="Zoom Out (min 50%)" shortcut="-">
         <ZoomOut className="w-3.5 h-3.5" />
       </ToolBtn>
       <button
