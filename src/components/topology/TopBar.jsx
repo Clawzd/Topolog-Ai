@@ -93,19 +93,15 @@ function Divider() {
 
 function LogoMark() {
   return (
-    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-primary/30 bg-primary/10 text-primary shadow-sm shadow-primary/10">
-      <svg viewBox="0 0 32 32" className="h-5 w-5" aria-hidden="true">
-        <path d="M9 10 L16 6 L23 10" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-        <path d="M9 22 L16 26 L23 22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-        <path d="M9 10 L9 22 M23 10 L23 22 M16 6 L16 26" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.65" />
-        <circle cx="16" cy="6" r="3.2" fill="currentColor" opacity="0.95" />
-        <circle cx="9" cy="10" r="3" fill="currentColor" opacity="0.75" />
-        <circle cx="23" cy="10" r="3" fill="currentColor" opacity="0.75" />
-        <circle cx="9" cy="22" r="3" fill="currentColor" opacity="0.75" />
-        <circle cx="23" cy="22" r="3" fill="currentColor" opacity="0.75" />
-        <circle cx="16" cy="26" r="3.2" fill="currentColor" opacity="0.95" />
-        <circle cx="16" cy="16" r="2.4" fill="hsl(var(--background))" stroke="currentColor" strokeWidth="1.4" />
-      </svg>
+    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl ring-1 ring-primary/35 shadow-sm shadow-primary/15">
+      <img
+        src="/favicon.svg"
+        alt=""
+        width={32}
+        height={32}
+        className="h-8 w-8"
+        decoding="async"
+      />
     </div>
   );
 }
