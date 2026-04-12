@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Layers3, Network, Route, ShieldCheck, Wand2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Layers3, Network, Route, ShieldCheck, Wand2, X, Activity, Wifi, Server } from 'lucide-react';
 import { LINK_TYPES } from '../../lib/topologyData';
 import { validateTopology } from '../../lib/networkArtifacts';
 
@@ -32,19 +32,20 @@ function buildInsights(nodes, links, vlans) {
     .slice()
     .sort((a, b) => (degree[b.id] || 0) - (degree[a.id] || 0))[0];
 
-  let score = 100;
-  if (!typeCounts.firewall && nodes.length > 2) score -= 22;
-  if (nodes.length > 5 && vlans.length === 0) score -= 18;
-  if (disconnected.length) score -= Math.min(24, disconnected.length * 8);
-  if (links.length < Math.max(0, nodes.length - 1)) score -= 12;
-  if ((typeCounts.switch || 0) > 2 && !links.some(link => link.type === 'fiber')) score -= 8;
-  score = Math.max(0, score);
+  // Compute topology depth (layers from edge to leaf)
+  const maxDegree = Math.max(0, ...Object.values(degree));
+  const avgDegree = nodes.length ? (Object.values(degree).reduce((a, b) => a + b, 0) / nodes.length).toFixed(1) : 0;
+
+  // Count wireless vs wired
+  const wirelessLinks = links.filter(l => l.type === 'wifi').length;
+  const wiredLinks = links.length - wirelessLinks;
 
   const risks = [];
   if (!typeCounts.firewall && nodes.length > 2) risks.push('No firewall is protecting the edge.');
   if (disconnected.length) risks.push(`${disconnected.length} device${disconnected.length > 1 ? 's are' : ' is'} disconnected.`);
-  if (nodes.length > 5 && vlans.length === 0) risks.push('No VLANs are defined for segmentation.');
+  if (nodes.length > 5 && vlans.length === 0) risks.push('No VLANs defined for network segmentation.');
   if (links.length < Math.max(0, nodes.length - 1)) risks.push('The graph may contain isolated islands.');
+  if (typeCounts.ap && vlans.length === 0) risks.push('Wireless APs without VLAN segmentation.');
   if (!risks.length) risks.push('Core structure looks ready for review.');
 
   const moves = [];
@@ -52,9 +53,13 @@ function buildInsights(nodes, links, vlans) {
   if (vlans.length === 0 && nodes.length > 5) moves.push('Create user, guest, server, and operations VLANs.');
   if (!links.some(link => link.type === 'fiber') && nodes.length > 8) moves.push('Use fiber for core or distribution uplinks.');
   if (disconnected.length) moves.push('Connect every endpoint before export.');
+  if (typeCounts.cloud && !typeCounts.firewall) moves.push('Add edge firewall before Internet link.');
   if (!moves.length) moves.push('Label critical bandwidths and export the design brief.');
 
-  return { score, risks, moves, typeCounts, linkCounts, vlanCoverage, centralNode };
+  return {
+    risks, moves, typeCounts, linkCounts, vlanCoverage, centralNode,
+    maxDegree, avgDegree, wirelessLinks, wiredLinks, disconnectedCount: disconnected.length,
+  };
 }
 
 function ScoreBadge({ score }) {
@@ -62,12 +67,26 @@ function ScoreBadge({ score }) {
     : score >= 55 ? 'text-amber-200 border-amber-400/30 bg-amber-500/10'
       : 'text-rose-200 border-rose-400/30 bg-rose-500/10';
 
+  const label = score >= 80 ? 'Good' : score >= 55 ? 'Fair' : 'Needs Work';
+
   return (
-    <div className={`flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-lg border ${tone}`}>
+    <div className={`flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-xl border ${tone}`}>
       <div className="text-center">
-        <div className="text-xl font-semibold leading-none">{score}</div>
-        <div className="mt-1 text-[9px] uppercase tracking-widest">Score</div>
+        <div className="text-xl font-bold leading-none">{score}</div>
+        <div className="mt-1 text-[8px] uppercase tracking-widest opacity-70">{label}</div>
       </div>
+    </div>
+  );
+}
+
+function StatCard({ icon: Icon, iconColor, label, value }) {
+  return (
+    <div className="rounded-lg border border-border/70 bg-muted/40 p-2">
+      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <Icon className={`h-3 w-3 ${iconColor}`} />
+        {label}
+      </div>
+      <div className="mt-1 truncate text-sm font-semibold text-foreground">{value}</div>
     </div>
   );
 }
@@ -89,131 +108,101 @@ export default function NetworkInsightsPanel({
   const validation = validateTopology({ nodes, links, vlans });
 
   return (
-    <aside className="absolute bottom-3 left-3 z-20 w-[min(420px,calc(100%-1.5rem))] overflow-hidden rounded-lg border border-border bg-card/95 shadow-2xl shadow-black/35 backdrop-blur-md">
-      <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+    <aside className="absolute bottom-3 left-3 z-20 w-[min(440px,calc(100%-1.5rem))] overflow-hidden rounded-xl border border-border/60 bg-card/95 shadow-2xl shadow-black/40 backdrop-blur-md">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 border-b border-border/60 px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
             <Network className="h-4 w-4 text-primary" />
             Network Intelligence
           </div>
           <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-            Design checks for segmentation, edge protection, link mix, and disconnected devices.
+            Real-time design analysis — segmentation, redundancy, edge protection.
           </p>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           title="Hide insights"
         >
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
 
+      {/* Score + Stats */}
       <div className="grid gap-3 p-4 sm:grid-cols-[auto,1fr]">
         <ScoreBadge score={validation.score} />
         <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-lg border border-border/70 bg-muted/40 p-2">
-            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-              <ShieldCheck className="h-3 w-3 text-emerald-300" />
-              VLAN Coverage
-            </div>
-            <div className="mt-1 text-sm font-semibold text-foreground">{insights.vlanCoverage}%</div>
-          </div>
-          <div className="rounded-lg border border-border/70 bg-muted/40 p-2">
-            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-              <Route className="h-3 w-3 text-primary" />
-              Central Device
-            </div>
-            <div className="mt-1 truncate text-sm font-semibold text-foreground">
-              {insights.centralNode?.label || 'None'}
-            </div>
-          </div>
+          <StatCard icon={ShieldCheck} iconColor="text-emerald-300" label="VLAN Coverage" value={`${insights.vlanCoverage}%`} />
+          <StatCard icon={Route} iconColor="text-primary" label="Central Device" value={insights.centralNode?.label || 'None'} />
+          <StatCard icon={Activity} iconColor="text-amber-300" label="Avg Connections" value={insights.avgDegree} />
+          <StatCard icon={Wifi} iconColor="text-violet-300" label="Wireless Links" value={`${insights.wirelessLinks} / ${links.length}`} />
         </div>
       </div>
 
+      {/* Findings + Moves */}
       <div className="grid gap-3 px-4 pb-4 sm:grid-cols-2">
         <div>
           <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
             <AlertTriangle className="h-3 w-3" />
-            Checks
+            Findings
           </div>
-          <div className="space-y-1.5">
-            {(validation.findings.length ? validation.findings.slice(0, 3) : insights.risks.slice(0, 3)).map(item => (
-              <div key={typeof item === 'string' ? item : item.title} className="flex gap-2 rounded-lg bg-muted/35 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
-                <CheckCircle2 className="mt-0.5 h-3 w-3 flex-shrink-0 text-primary" />
-                <span>{typeof item === 'string' ? item : `${item.title}: ${item.detail}`}</span>
+          <div className="space-y-1.5 max-h-32 overflow-y-auto">
+            {(validation.findings.length ? validation.findings.slice(0, 5) : insights.risks.slice(0, 3)).map((item, idx) => {
+              const text = typeof item === 'string' ? item : `${item.title}: ${item.detail}`;
+              const severity = typeof item === 'string' ? null : item.severity;
+              const dotColor = severity === 'high' ? 'bg-rose-400' : severity === 'medium' ? 'bg-amber-400' : severity === 'low' ? 'bg-blue-400' : 'bg-primary';
+              return (
+                <div key={idx} className="flex gap-2 rounded-lg bg-muted/35 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
+                  <span className={`mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full ${dotColor}`} />
+                  <span>{text}</span>
+                </div>
+              );
+            })}
+            {!validation.findings.length && !insights.risks.length && (
+              <div className="flex gap-2 rounded-lg bg-emerald-500/10 px-2.5 py-2 text-[10px] text-emerald-300">
+                <CheckCircle2 className="mt-0.5 h-3 w-3 flex-shrink-0" />
+                No issues found
               </div>
-            ))}
+            )}
           </div>
         </div>
 
         <div>
           <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
             <Layers3 className="h-3 w-3" />
-            Next Moves
+            Recommendations
           </div>
-          <div className="space-y-1.5">
-            {insights.moves.slice(0, 3).map(move => (
-              <div key={move} className="rounded-lg bg-muted/35 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
-                {move}
+          <div className="space-y-1.5 max-h-32 overflow-y-auto">
+            {insights.moves.slice(0, 4).map((move, idx) => (
+              <div key={idx} className="rounded-lg bg-muted/35 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
+                → {move}
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
-        <button
-          type="button"
-          onClick={onAutoLayout}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[10px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
-        >
-          <Wand2 className="h-3 w-3" />
-          Auto Layout
+      {/* Quick Actions */}
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 px-4 py-3">
+        <button type="button" onClick={onAutoLayout}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[10px] font-medium text-primary-foreground transition-opacity hover:opacity-90">
+          <Wand2 className="h-3 w-3" /> Auto Layout
         </button>
-        <button
-          type="button"
-          onClick={onOpenVlanManager}
-          className="rounded-md border border-border bg-card px-2.5 py-1.5 text-[10px] font-medium text-foreground transition-colors hover:bg-secondary"
-        >
-          VLAN Plan
-        </button>
-        <button
-          type="button"
-          onClick={onTemplates}
-          className="rounded-md border border-border bg-card px-2.5 py-1.5 text-[10px] font-medium text-foreground transition-colors hover:bg-secondary"
-        >
-          Templates
-        </button>
-        <button
-          type="button"
-          onClick={onValidate}
-          className="rounded-md border border-border bg-card px-2.5 py-1.5 text-[10px] font-medium text-foreground transition-colors hover:bg-secondary"
-        >
-          Validate
-        </button>
-        <button
-          type="button"
-          onClick={onExportBrief}
-          className="rounded-md border border-border bg-card px-2.5 py-1.5 text-[10px] font-medium text-foreground transition-colors hover:bg-secondary"
-        >
-          Brief
-        </button>
-        <button
-          type="button"
-          onClick={onExportConfig}
-          className="rounded-md border border-border bg-card px-2.5 py-1.5 text-[10px] font-medium text-foreground transition-colors hover:bg-secondary"
-        >
-          Config
-        </button>
-        <button
-          type="button"
-          onClick={onShare}
-          className="rounded-md border border-border bg-card px-2.5 py-1.5 text-[10px] font-medium text-foreground transition-colors hover:bg-secondary"
-        >
-          Share
-        </button>
+        {[
+          { label: 'VLANs', onClick: onOpenVlanManager },
+          { label: 'Templates', onClick: onTemplates },
+          { label: 'Validate', onClick: onValidate },
+          { label: 'Brief', onClick: onExportBrief },
+          { label: 'Config', onClick: onExportConfig },
+          { label: 'Share', onClick: onShare },
+        ].map(btn => (
+          <button key={btn.label} type="button" onClick={btn.onClick}
+            className="rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5 text-[10px] font-medium text-foreground/80 transition-colors hover:bg-muted hover:text-foreground">
+            {btn.label}
+          </button>
+        ))}
         <div className="ml-auto flex items-center gap-2 text-[9px] text-muted-foreground">
           {Object.entries(insights.linkCounts).slice(0, 3).map(([type, count]) => (
             <span key={type} className="inline-flex items-center gap-1">

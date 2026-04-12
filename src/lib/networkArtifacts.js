@@ -33,6 +33,61 @@ function firstGatewayForVlan(nodes, vlanName) {
   return nodes.find(node => node.vlan === vlanName && ['router', 'firewall', 'loadbalancer'].includes(node.type));
 }
 
+function getDegreeMap(nodes, links) {
+  const degree = Object.fromEntries(nodes.map(node => [node.id, 0]));
+  links.forEach(link => {
+    if (degree[link.source] !== undefined) degree[link.source] += 1;
+    if (degree[link.target] !== undefined) degree[link.target] += 1;
+  });
+  return degree;
+}
+
+function findConnectedComponents(nodes, links) {
+  const adj = new Map(nodes.map(n => [n.id, []]));
+  links.forEach(link => {
+    if (adj.has(link.source)) adj.get(link.source).push(link.target);
+    if (adj.has(link.target)) adj.get(link.target).push(link.source);
+  });
+  const visited = new Set();
+  let components = 0;
+  nodes.forEach(node => {
+    if (visited.has(node.id)) return;
+    components++;
+    const stack = [node.id];
+    while (stack.length) {
+      const id = stack.pop();
+      if (visited.has(id)) continue;
+      visited.add(id);
+      (adj.get(id) || []).forEach(next => { if (!visited.has(next)) stack.push(next); });
+    }
+  });
+  return components;
+}
+
+function findSinglePointsOfFailure(nodes, links) {
+  const degree = getDegreeMap(nodes, links);
+  const critical = [];
+  const infraTypes = new Set(['router', 'switch', 'firewall', 'loadbalancer']);
+
+  nodes.forEach(node => {
+    if (!infraTypes.has(node.type)) return;
+    const connections = degree[node.id] || 0;
+    if (connections < 2) return;
+
+    // Check if removing this node would split the graph
+    const remainingNodes = nodes.filter(n => n.id !== node.id);
+    const remainingLinks = links.filter(l => l.source !== node.id && l.target !== node.id);
+    if (remainingNodes.length === 0) return;
+
+    const components = findConnectedComponents(remainingNodes, remainingLinks);
+    if (components > 1) {
+      critical.push(node);
+    }
+  });
+
+  return critical;
+}
+
 export function createTopologyPayload({ nodes, links, rooms, vlans, prompt = '' }) {
   return {
     version: 1,
@@ -52,6 +107,7 @@ export function validateTopology({ nodes, links, vlans }) {
   const usedIps = new Map();
   const usedVlanNames = new Set();
 
+  // IP validation
   nodes.forEach(node => {
     if (!isValidIp(node.ip)) {
       findings.push({
@@ -74,6 +130,7 @@ export function validateTopology({ nodes, links, vlans }) {
     if (node.vlan) usedVlanNames.add(node.vlan);
   });
 
+  // VLAN validation
   vlans.forEach(vlan => {
     if (!isValidCidr(vlan.subnet)) {
       findings.push({
@@ -86,21 +143,23 @@ export function validateTopology({ nodes, links, vlans }) {
       findings.push({
         severity: 'medium',
         title: 'Missing VLAN gateway',
-        detail: `${vlan.name} has no router, firewall, or load balancer assigned to it.`,
+        detail: `${vlan.name} has no router, firewall, or load balancer assigned.`,
       });
     }
   });
 
+  // Undefined VLAN references
   usedVlanNames.forEach(vlanName => {
     if (!vlans.some(vlan => vlan.name === vlanName)) {
       findings.push({
         severity: 'medium',
         title: 'Undefined VLAN reference',
-        detail: `${vlanName} is assigned to devices but is not defined in the VLAN manager.`,
+        detail: `${vlanName} is assigned to devices but not defined in VLAN manager.`,
       });
     }
   });
 
+  // Broken link references
   links.forEach(link => {
     if (!nodeMap[link.source] || !nodeMap[link.target]) {
       findings.push({
@@ -111,20 +170,18 @@ export function validateTopology({ nodes, links, vlans }) {
     }
   });
 
-  const degree = Object.fromEntries(nodes.map(node => [node.id, 0]));
-  links.forEach(link => {
-    if (degree[link.source] !== undefined) degree[link.source] += 1;
-    if (degree[link.target] !== undefined) degree[link.target] += 1;
-  });
+  // Disconnected devices
+  const degree = getDegreeMap(nodes, links);
   const disconnected = nodes.filter(node => degree[node.id] === 0);
   if (disconnected.length) {
     findings.push({
       severity: disconnected.length > 2 ? 'high' : 'medium',
       title: 'Disconnected devices',
-      detail: `${disconnected.map(node => node.label || node.id).slice(0, 5).join(', ')} ${disconnected.length > 5 ? 'and more ' : ''}are not linked.`,
+      detail: `${disconnected.map(node => node.label || node.id).slice(0, 5).join(', ')} ${disconnected.length > 5 ? 'and more ' : ''}not linked.`,
     });
   }
 
+  // No firewall
   if (nodes.length > 2 && !typeCounts.firewall) {
     findings.push({
       severity: 'medium',
@@ -133,6 +190,7 @@ export function validateTopology({ nodes, links, vlans }) {
     });
   }
 
+  // No fiber in larger designs
   if (nodes.length > 8 && !links.some(link => link.type === 'fiber')) {
     findings.push({
       severity: 'low',
@@ -141,11 +199,55 @@ export function validateTopology({ nodes, links, vlans }) {
     });
   }
 
+  // No segmentation
   if (nodes.length > 5 && vlans.length === 0) {
     findings.push({
       severity: 'medium',
       title: 'No segmentation plan',
       detail: 'Define VLANs for users, guests, servers, voice, IoT, or security devices.',
+    });
+  }
+
+  // Single points of failure (redundancy check)
+  if (nodes.length > 3) {
+    const spof = findSinglePointsOfFailure(nodes, links);
+    if (spof.length > 0) {
+      findings.push({
+        severity: 'medium',
+        title: 'Single point of failure',
+        detail: `${spof.map(n => n.label || n.id).slice(0, 3).join(', ')} — removing any of these splits the network.`,
+      });
+    }
+  }
+
+  // Isolated network islands
+  if (nodes.length > 1) {
+    const validLinks = links.filter(l => nodeMap[l.source] && nodeMap[l.target]);
+    const components = findConnectedComponents(nodes, validLinks);
+    if (components > 1) {
+      findings.push({
+        severity: 'high',
+        title: 'Network islands detected',
+        detail: `${components} separate groups of devices exist with no connections between them.`,
+      });
+    }
+  }
+
+  // Cloud/ISP without firewall
+  if (typeCounts.cloud && !typeCounts.firewall && nodes.length > 2) {
+    findings.push({
+      severity: 'high',
+      title: 'Unprotected WAN edge',
+      detail: 'Cloud/ISP connection exists without a firewall — traffic is unfiltered.',
+    });
+  }
+
+  // Wireless without segmentation
+  if (typeCounts.ap && vlans.length === 0 && nodes.length > 4) {
+    findings.push({
+      severity: 'medium',
+      title: 'Unsegmented wireless',
+      detail: 'Access points exist without VLAN segmentation — guest and corporate traffic mix.',
     });
   }
 
