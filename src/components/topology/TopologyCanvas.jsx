@@ -286,6 +286,10 @@ export default function TopologyCanvas({
         if (dragIds.length === 1) onMultiSelect && onMultiSelect([]);
         setDragging({ ids: dragIds, startX: e.clientX, startY: e.clientY, origins });
       } else {
+        if (mode === 'connect' && connectingFrom) {
+          setConnectingFrom(null);
+          return;
+        }
         // Check if clicking a room (drag to move; resize uses handle stopPropagation)
         const hitBarrier = (barriers || []).find((b) => {
           const lx1 = b.x1 ?? b.x;
