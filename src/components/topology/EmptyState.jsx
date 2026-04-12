@@ -1,0 +1,34 @@
+import { Sparkles, LayoutGrid } from 'lucide-react';
+
+export default function EmptyState({ onTemplates }) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      <div className="text-center max-w-sm pointer-events-auto">
+        {/* Animated rings */}
+        <div className="relative w-28 h-28 mx-auto mb-6">
+          <div className="absolute inset-0 rounded-full border border-primary/10 animate-ping" style={{ animationDuration: '3s' }} />
+          <div className="absolute inset-2 rounded-full border border-primary/15 animate-ping" style={{ animationDuration: '2.2s', animationDelay: '0.4s' }} />
+          <div className="absolute inset-4 rounded-full border border-primary/25 animate-ping" style={{ animationDuration: '1.6s', animationDelay: '0.8s' }} />
+          <div className="absolute inset-6 rounded-full border border-primary/40" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Sparkles className="w-9 h-9 text-primary animate-shimmer" />
+          </div>
+        </div>
+
+        <h2 className="text-lg font-semibold text-foreground mb-2">Design Your Network</h2>
+        <p className="text-xs text-muted-foreground leading-relaxed mb-6">
+          Describe your physical space in the AI panel, or start from a template. 
+          Then drag, connect, and customize your topology.
+        </p>
+
+        <button
+          onClick={onTemplates}
+          className="flex items-center gap-2 mx-auto bg-secondary hover:bg-primary hover:text-primary-foreground border border-border text-foreground text-xs font-medium px-4 py-2 rounded-lg transition-all"
+        >
+          <LayoutGrid className="w-4 h-4" />
+          Browse Templates
+        </button>
+      </div>
+    </div>
+  );
+}

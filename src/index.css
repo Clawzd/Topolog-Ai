@@ -1,0 +1,204 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 7%;
+    --foreground: 213 31% 91%;
+    --card: 222 40% 10%;
+    --card-foreground: 213 31% 91%;
+    --popover: 222 40% 10%;
+    --popover-foreground: 213 31% 91%;
+    --primary: 188 95% 43%;
+    --primary-foreground: 222 47% 7%;
+    --secondary: 222 35% 15%;
+    --secondary-foreground: 213 31% 91%;
+    --muted: 222 35% 13%;
+    --muted-foreground: 215 20% 55%;
+    --accent: 188 95% 43%;
+    --accent-foreground: 222 47% 7%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 213 31% 91%;
+    --border: 222 30% 18%;
+    --input: 222 35% 13%;
+    --ring: 188 95% 43%;
+    --radius: 0.5rem;
+    --sidebar-background: 222 47% 7%;
+    --sidebar-foreground: 213 31% 91%;
+    --sidebar-primary: 188 95% 43%;
+    --sidebar-primary-foreground: 222 47% 7%;
+    --sidebar-accent: 222 35% 15%;
+    --sidebar-accent-foreground: 213 31% 91%;
+    --sidebar-border: 222 30% 18%;
+    --sidebar-ring: 188 95% 43%;
+    --surface: 222 40% 10%;
+    --surface-hover: 222 35% 14%;
+    --cyan: 188 95% 43%;
+    --cyan-glow: 0 0 20px hsla(188, 95%, 43%, 0.3);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground font-inter;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Canvas styles */
+.canvas-container {
+  cursor: default;
+  user-select: none;
+}
+
+.canvas-container.mode-connect {
+  cursor: crosshair;
+}
+
+.canvas-container.mode-room {
+  cursor: cell;
+}
+
+.canvas-container.mode-wall {
+  cursor: crosshair;
+}
+
+.canvas-container.mode-pan {
+  cursor: grab;
+}
+
+.canvas-container.mode-pan:active {
+  cursor: grabbing;
+}
+
+/* Node glow effects */
+.node-glow {
+  filter: drop-shadow(0 0 8px hsla(188, 95%, 43%, 0.6));
+}
+
+.node-selected {
+  filter: drop-shadow(0 0 12px hsla(188, 95%, 43%, 0.9));
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(222, 47%, 7%);
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(222, 30%, 25%);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(188, 95%, 43%);
+}
+
+/* Animations */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.slide-in-right {
+  animation: slide-in-right 0.2s ease-out;
+}
+
+@keyframes slide-in-bottom {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.slide-in-bottom {
+  animation: slide-in-bottom 0.2s ease-out;
+}
+
+@keyframes dash-flow {
+  from { stroke-dashoffset: 36; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes dash-flow-fast {
+  from { stroke-dashoffset: 36; }
+  to { stroke-dashoffset: 0; }
+}
+
+.link-flow {
+  animation: dash-flow 1.4s linear infinite;
+  will-change: stroke-dashoffset;
+}
+
+.link-flow-fast {
+  animation: dash-flow-fast 0.6s linear infinite;
+  will-change: stroke-dashoffset;
+}
+
+@keyframes wave-ring {
+  0% { r: 52; opacity: 0.6; }
+  100% { r: 70; opacity: 0; }
+}
+
+@keyframes wave-ring-2 {
+  0% { r: 52; opacity: 0.4; }
+  100% { r: 80; opacity: 0; }
+}
+
+.wave-ring-1 {
+  animation: wave-ring 1.4s ease-out infinite;
+}
+
+.wave-ring-2 {
+  animation: wave-ring-2 1.4s ease-out 0.5s infinite;
+}
+
+@keyframes float-up {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-4px); }
+}
+
+.animate-float {
+  animation: float-up 3s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { opacity: 0.4; }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes wave-bar {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1); }
+}
+
+.wave-bar-1 { animation: wave-bar 1s ease-in-out 0s infinite; transform-origin: bottom; }
+.wave-bar-2 { animation: wave-bar 1s ease-in-out 0.15s infinite; transform-origin: bottom; }
+.wave-bar-3 { animation: wave-bar 1s ease-in-out 0.3s infinite; transform-origin: bottom; }
+.wave-bar-4 { animation: wave-bar 1s ease-in-out 0.45s infinite; transform-origin: bottom; }
+.wave-bar-5 { animation: wave-bar 1s ease-in-out 0.6s infinite; transform-origin: bottom; }
