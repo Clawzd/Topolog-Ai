@@ -1,6 +1,6 @@
 import { LayoutGrid, Sparkles, Wand2, ArrowDown } from 'lucide-react';
 
-export default function EmptyState({ onTemplates, onQuickStart }) {
+export default function EmptyState({ onTemplates, onQuickStart, onDescribe }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
       <div className="text-center max-w-md pointer-events-auto">
@@ -23,11 +23,11 @@ export default function EmptyState({ onTemplates, onQuickStart }) {
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <button
-            onClick={onQuickStart}
+            onClick={onDescribe}
             className="flex items-center gap-2.5 bg-primary text-primary-foreground text-sm font-semibold px-6 py-2.5 rounded-xl transition-all hover:opacity-90 hover:shadow-lg hover:shadow-primary/20 active:scale-[0.98]"
           >
             <Wand2 className="w-4 h-4" />
-            Smart Blueprint
+            Describe Environment
           </button>
           <button
             onClick={onTemplates}
@@ -35,6 +35,12 @@ export default function EmptyState({ onTemplates, onQuickStart }) {
           >
             <LayoutGrid className="w-4 h-4" />
             Browse Templates
+          </button>
+          <button
+            onClick={onQuickStart}
+            className="flex items-center gap-2.5 bg-muted/40 hover:bg-muted border border-border/60 text-foreground text-sm font-medium px-6 py-2.5 rounded-xl transition-all hover:border-primary/30 active:scale-[0.98]"
+          >
+            Smart Blueprint
           </button>
         </div>
 

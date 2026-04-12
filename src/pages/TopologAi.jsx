@@ -11,7 +11,7 @@ import TemplateGallery from '../components/topology/TemplateGallery';
 import MiniMap from '../components/topology/MiniMap';
 import EmptyState from '../components/topology/EmptyState';
 import NetworkInsightsPanel from '../components/topology/NetworkInsightsPanel';
-import { generateId, TEMPLATES } from '../lib/topologyData';
+import { DEVICE_TYPES, generateId, TEMPLATES } from '../lib/topologyData';
 import { generatePromptTopology } from '../lib/promptTopologyGenerator';
 import { ChevronLeft, ChevronRight, Box, Home, LayoutTemplate } from 'lucide-react';
 import ConnectionTypePopup from '../components/topology/ConnectionTypePopup';
@@ -62,6 +62,7 @@ export default function TopologAi() {
   const jumpCanvasHistory = useTopologyCanvasStore((s) => s.jumpToHistoryIndex);
   const [selectedId, setSelectedId] = useState(null);
   const [mode, setMode] = useState('select');
+  const [placementType, setPlacementType] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 60, y: 60 });
   const [connectingFrom, setConnectingFrom] = useState(null);
@@ -120,6 +121,10 @@ export default function TopologAi() {
   useEffect(() => {
     if (failureTarget) setFailureModalOpen(true);
   }, [failureTarget]);
+
+  useEffect(() => {
+    if (mode !== 'place' && placementType) setPlacementType(null);
+  }, [mode, placementType]);
 
   const [debouncedGraph, setDebouncedGraph] = useState(() => ({
     nodes,
@@ -542,6 +547,12 @@ export default function TopologAi() {
     };
     setNodes(n => [...n, newNode]);
     setSelectedId(newNode.id);
+  };
+
+  const handleDevicePick = (type) => {
+    setPlacementType(type);
+    setMode('place');
+    showToast(`Click canvas to place ${DEVICE_TYPES[type]?.label || type}`);
   };
 
   const handleLinkAdd = (sourceId, targetId) => {
@@ -1073,6 +1084,7 @@ export default function TopologAi() {
       if (e.key === 'Escape') {
         setConnectingFrom(null);
         setMode('select');
+        setPlacementType(null);
         clearFailureSim();
         setCommandPaletteOpen(false);
         setShortcutsOpen(false);
@@ -1252,7 +1264,12 @@ export default function TopologAi() {
         {!focusMode && (
           <div className="flex flex-col flex-shrink-0 h-full min-h-0 w-[17.5rem] sm:w-72 border-r border-border bg-card/80">
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-              <LeftPanel onDeviceDragStart={handleDeviceDragStart} mode={mode} setMode={setMode} />
+              <LeftPanel
+                onDeviceDragStart={handleDeviceDragStart}
+                onDevicePick={handleDevicePick}
+                mode={mode}
+                placementType={placementType}
+              />
             </div>
             <EnvironmentToolbox mode={mode} setMode={setMode} />
           </div>
@@ -1327,6 +1344,7 @@ export default function TopologAi() {
             selectedId={selectedId} setSelectedId={setSelectedId}
             selectedIds={selectedIds} onMultiSelect={setSelectedIds}
             mode={mode} setMode={setMode}
+            placementType={placementType}
             onNodeMove={handleNodeMove}
             onNodeAdd={handleNodeAdd}
             onLinkAdd={handleLinkAdd}
@@ -1352,7 +1370,13 @@ export default function TopologAi() {
             }}
           />
 
-          {!hasTopology && <EmptyState onTemplates={() => setShowTemplates(true)} onQuickStart={handleQuickStart} />}
+          {!hasTopology && (
+            <EmptyState
+              onTemplates={() => setShowTemplates(true)}
+              onQuickStart={handleQuickStart}
+              onDescribe={() => aiSubmitRef.current?.focusPrompt?.()}
+            />
+          )}
 
           {/* Minimap */}
           {hasTopology && (
@@ -1393,6 +1417,12 @@ export default function TopologAi() {
           {mode === 'connect' && (
             <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-primary/90 text-primary-foreground text-xs px-3 py-1.5 rounded-full shadow-lg">
               {connectingFrom ? 'Click target device to connect' : 'Click source device to start connection'}
+              <span className="ml-2 opacity-70">- Esc to cancel</span>
+            </div>
+          )}
+          {mode === 'place' && placementType && (
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-primary/90 text-primary-foreground text-xs px-3 py-1.5 rounded-full shadow-lg">
+              Click canvas to place {DEVICE_TYPES[placementType]?.label || placementType}
               <span className="ml-2 opacity-70">- Esc to cancel</span>
             </div>
           )}

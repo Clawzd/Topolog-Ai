@@ -7,7 +7,7 @@ function normVlanToken(s) {
 
 /**
  * Append a VLAN name to a comma-separated list only if not already present (case-insensitive, whitespace-normalized).
- * @param {string} [existingCsv]
+ * @param {string} existingCsv
  * @param {string} vlanToAdd
  * @returns {string}
  */

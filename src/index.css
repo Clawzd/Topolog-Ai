@@ -99,6 +99,10 @@
   cursor: crosshair;
 }
 
+.canvas-container.mode-place {
+  cursor: copy;
+}
+
 .canvas-container.mode-room {
   cursor: cell;
 }

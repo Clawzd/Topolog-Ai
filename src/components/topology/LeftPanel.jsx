@@ -12,7 +12,7 @@ const DEVICE_GROUPS = {
   'Other': ['cloud', 'camera', 'iot'],
 };
 
-export default function LeftPanel({ onDeviceDragStart, mode, setMode }) {
+export default function LeftPanel({ onDeviceDragStart, onDevicePick, mode, placementType }) {
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState({});
 
@@ -59,13 +59,19 @@ export default function LeftPanel({ onDeviceDragStart, mode, setMode }) {
                 {types.map(type => {
                   const dt = DEVICE_TYPES[type];
                   const IconFn = DEVICE_ICONS[type] || DEVICE_ICONS.pc;
+                  const isActive = mode === 'place' && placementType === type;
                   return (
                     <div
                       key={type}
                       draggable
                       onDragStart={e => onDeviceDragStart(e, type)}
-                      className="relative flex flex-col items-center gap-1.5 p-3 min-h-[5.5rem] rounded-xl bg-muted/30 border border-border/40 hover:border-primary/50 hover:bg-primary/5 hover:shadow-sm hover:shadow-primary/10 cursor-grab active:cursor-grabbing transition-all duration-150 group"
-                      title={`Drag to add ${dt.label}`}
+                      onClick={() => onDevicePick?.(type)}
+                      className={`relative flex flex-col items-center gap-1.5 p-3 min-h-[5.5rem] rounded-xl border hover:border-primary/50 hover:bg-primary/5 hover:shadow-sm hover:shadow-primary/10 cursor-pointer active:cursor-grabbing transition-all duration-150 group ${
+                        isActive
+                          ? 'bg-primary/10 border-primary/70 shadow-sm shadow-primary/20'
+                          : 'bg-muted/30 border-border/40'
+                      }`}
+                      title={`Click or drag to add ${dt.label}`}
                     >
                       <svg width="48" height="34" viewBox="0 0 90 50" className="flex-shrink-0">
                         {IconFn(dt.color)}

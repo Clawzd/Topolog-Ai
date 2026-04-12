@@ -13,7 +13,19 @@ const EXAMPLE_PROMPTS = [
   'Data center edge with redundant routers, firewalls, and storage tier',
 ];
 
-const AIPanel = forwardRef(function AIPanel({ onTopologyGenerated, onRefinement, hasTopology }, ref) {
+/**
+ * @typedef {object} AIPanelProps
+ * @property {(topology: any, prompt: string) => void} onTopologyGenerated
+ * @property {(topology: any, prompt: string) => void} onRefinement
+ * @property {boolean} hasTopology
+ */
+
+const AIPanel = forwardRef(
+  /**
+   * @param {AIPanelProps} props
+   * @param {import('react').ForwardedRef<{ submitGenerate: () => void }>} ref
+   */
+  function AIPanel({ onTopologyGenerated, onRefinement, hasTopology }, ref) {
   const [prompt, setPrompt] = useState('');
   const [exampleRotate, setExampleRotate] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -22,13 +34,19 @@ const AIPanel = forwardRef(function AIPanel({ onTopologyGenerated, onRefinement,
   const [error, setError] = useState('');
   const providerLabel = getTopologyAiProviderLabel();
   const generateRef = useRef(null);
+  const promptRef = useRef(null);
 
   const generate = async (text, isRefinement = false) => {
-    if (!text.trim()) return;
+    const cleanText = String(text || '').trim();
+    if (!cleanText) {
+      setError('Please describe your environment');
+      promptRef.current?.focus();
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      const topology = await generateTopologyFromPrompt(text);
+      const topology = await generateTopologyFromPrompt(cleanText);
 
       // Ensure all IDs are unique
       const fixedTopology = {
@@ -49,16 +67,16 @@ const AIPanel = forwardRef(function AIPanel({ onTopologyGenerated, onRefinement,
       }));
       const entry = {
         id: Date.now(),
-        prompt: text,
+        prompt: cleanText,
         summary: fixedTopology.summary,
         isRefinement,
         timestamp: new Date().toLocaleTimeString(),
       };
       setHistory(h => [entry, ...h.slice(0, 9)]);
       if (isRefinement) {
-        onRefinement(fixedTopology, text);
+        onRefinement(fixedTopology, cleanText);
       } else {
-        onTopologyGenerated(fixedTopology, text);
+        onTopologyGenerated(fixedTopology, cleanText);
       }
       setPrompt('');
     } catch {
@@ -74,6 +92,10 @@ const AIPanel = forwardRef(function AIPanel({ onTopologyGenerated, onRefinement,
 
   useImperativeHandle(ref, () => ({
     submitGenerate: () => { void generateRef.current?.(); },
+    focusPrompt: () => {
+      promptRef.current?.focus();
+      promptRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    },
   }), []);
 
   const handleSubmit = (e) => {
@@ -98,9 +120,15 @@ const AIPanel = forwardRef(function AIPanel({ onTopologyGenerated, onRefinement,
       <div className="p-3 border-b border-border">
         <form onSubmit={handleSubmit}>
           <textarea
+            ref={promptRef}
             value={prompt}
             onChange={e => setPrompt(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); } }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                handleSubmit(e);
+              }
+            }}
             placeholder={hasTopology ? 'Refine: add a DMZ, change WiFi coverage…' : 'Describe your space, e.g.: 3 rooms — server room, open office with 15 workstations, meeting room. Thick concrete walls. Need full WiFi coverage and camera monitoring.'}
             rows={5}
             maxLength={4000}
@@ -126,7 +154,7 @@ const AIPanel = forwardRef(function AIPanel({ onTopologyGenerated, onRefinement,
           </button>
           <button
             type="submit"
-            disabled={loading || !prompt.trim()}
+            disabled={loading}
             className="flex-[1.4] flex items-center justify-center gap-2 bg-primary text-primary-foreground text-xs font-medium py-2 rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity"
           >
             {loading ? (
@@ -197,6 +225,7 @@ const AIPanel = forwardRef(function AIPanel({ onTopologyGenerated, onRefinement,
       )}
     </div>
   );
-});
+  }
+);
 
 export default AIPanel;

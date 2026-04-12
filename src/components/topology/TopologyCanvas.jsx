@@ -153,6 +153,7 @@ export default function TopologyCanvas({
   selectedId, setSelectedId,
   selectedIds, onMultiSelect,
   mode, setMode,
+  placementType = null,
   onNodeMove, onNodeAdd, onLinkAdd, onLinkUpdate, onLinkDelete, onRoomAdd, onRoomResize, onRoomMove,
   onBeforeChange,
   zoom, pan, setZoom, setPan,
@@ -249,6 +250,11 @@ export default function TopologyCanvas({
     if (e.button !== 0) return;
     const { x, y } = svgToCanvas(e.clientX, e.clientY);
     if (mode === 'pan') { setIsPanning(true); setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y }); return; }
+    if (mode === 'place' && placementType) {
+      onNodeAdd && onNodeAdd(placementType, x - NODE_W / 2, y - NODE_H / 2);
+      setMode && setMode('select');
+      return;
+    }
     if (mode === 'room') { setDrawingRoom({ x, y, w: 0, h: 0 }); return; }
     if (mode === 'barrier' || mode === 'noise' || mode === 'conduit' || mode === 'door' || mode === 'window' || mode === 'obstacle') {
       setDrawingBarrier({ x1: x, y1: y, x2: x, y2: y });
@@ -616,6 +622,7 @@ export default function TopologyCanvas({
 
   const getModeClass = () => {
     if (mode === 'pan') return 'mode-pan';
+    if (mode === 'place') return 'mode-place';
     if (mode === 'connect') return 'mode-connect';
     if (mode === 'room') return 'mode-room';
     if (mode === 'barrier' || mode === 'noise' || mode === 'conduit' || mode === 'door' || mode === 'window' || mode === 'obstacle') return 'mode-room';

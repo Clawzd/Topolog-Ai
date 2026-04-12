@@ -38,7 +38,7 @@ const MODES = [
   { id: 'vlanzone', icon: LayoutGrid, label: 'VLAN zone overlay', key: 'Z' },
 ];
 
-function ToolBtn({ onClick, title, shortcut, children, active = false, danger = false, disabled = false }) {
+function ToolBtn({ onClick, title, shortcut = '', children, active = false, danger = false, disabled = false }) {
   return (
     <button
       onClick={onClick}

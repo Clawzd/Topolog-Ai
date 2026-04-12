@@ -814,6 +814,7 @@ export function computeSmartTopology({
       return;
     }
 
+    /** @type {null | { ap: any, score: number, d: number, totalDb: number, rfBlock: boolean, floorDb: number, barrierList: any[] }} */
     let best = null;
     let bestScore = -1;
     let secondPassRan = false;
