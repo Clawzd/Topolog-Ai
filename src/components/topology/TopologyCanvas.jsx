@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+﻿import { useRef, useEffect, useCallback, useState } from 'react';
 import { DEVICE_TYPES, LINK_TYPES } from '../../lib/topologyData';
 
 const NODE_W = 90;
@@ -196,6 +196,7 @@ function getCurvePath(x1, y1, x2, y2) {
   const dx = x2 - x1;
   const dy = y2 - y1;
   const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 1) return `M ${x1} ${y1} L ${x2} ${y2}`;
   const curve = Math.min(dist * 0.35, 80);
   // Perpendicular offset for slight curve
   const nx = -dy / dist;
@@ -211,6 +212,7 @@ export default function TopologyCanvas({
   selectedIds, onMultiSelect,
   mode, setMode,
   onNodeMove, onNodeAdd, onLinkAdd, onLinkUpdate, onLinkDelete, onRoomAdd, onRoomResize,
+  onBeforeChange,
   zoom, pan, setZoom, setPan,
   connectingFrom, setConnectingFrom,
   highlightVlan,
@@ -269,9 +271,18 @@ export default function TopologyCanvas({
           }
           return;
         }
-        setSelectedId(clicked.id);
-        onMultiSelect && onMultiSelect([]);
-        setDragging({ id: clicked.id, startX: e.clientX, startY: e.clientY, origX: clicked.x, origY: clicked.y });
+        const dragIds = selectedIds?.includes(clicked.id) && selectedIds.length > 1
+          ? selectedIds
+          : [clicked.id];
+        const origins = Object.fromEntries(
+          nodes
+            .filter(node => dragIds.includes(node.id))
+            .map(node => [node.id, { x: node.x, y: node.y }])
+        );
+        onBeforeChange && onBeforeChange();
+        setSelectedId(dragIds.length === 1 ? clicked.id : null);
+        if (dragIds.length === 1) onMultiSelect && onMultiSelect([]);
+        setDragging({ ids: dragIds, startX: e.clientX, startY: e.clientY, origins });
       } else {
         // Check if clicking a room
         const clickedRoom = rooms.find(r => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
@@ -305,7 +316,10 @@ export default function TopologyCanvas({
     if (dragging) {
       const dx = (e.clientX - dragging.startX) / zoom;
       const dy = (e.clientY - dragging.startY) / zoom;
-      onNodeMove(dragging.id, dragging.origX + dx, dragging.origY + dy);
+      dragging.ids.forEach(id => {
+        const origin = dragging.origins[id];
+        if (origin) onNodeMove(id, origin.x + dx, origin.y + dy);
+      });
       return;
     }
     if (isPanning) { setPan({ x: e.clientX - panStart.x, y: e.clientY - panStart.y }); return; }
@@ -382,6 +396,15 @@ export default function TopologyCanvas({
     onContextMenuRequest && onContextMenuRequest(e.clientX, e.clientY, { type: 'canvas', item: null });
   };
 
+  const handleDoubleClick = (e) => {
+    if (mode !== 'select') return;
+    const { x, y } = svgToCanvas(e.clientX, e.clientY);
+    const clickedNode = nodes.find(n => x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H);
+    const clickedRoom = rooms.find(r => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
+    if (clickedNode || clickedRoom) return;
+    onNodeAdd && onNodeAdd('switch', x - NODE_W / 2, y - NODE_H / 2);
+  };
+
   const getModeClass = () => {
     if (mode === 'pan') return 'mode-pan';
     if (mode === 'connect') return 'mode-connect';
@@ -397,7 +420,7 @@ export default function TopologyCanvas({
     const vlanColor = getVlanColor(node.vlan);
     const dimmed = highlightVlan && node.vlan !== highlightVlan;
     const IconEl = DEVICE_ICONS[node.type] || DEVICE_ICONS.pc;
-    const glowColor = isSelected || isConnecting ? '#06b6d4' : dt.color;
+    const glowColor = isSelected || isConnecting ? '#14b8a6' : dt.color;
 
     return (
       <g key={node.id}
@@ -412,36 +435,36 @@ export default function TopologyCanvas({
             style={{ filter: `drop-shadow(0 0 6px ${glowColor})` }} />
         )}
         <rect x={0} y={0} width={NODE_W} height={NODE_H} rx={7}
-          fill={isSelected || isConnecting ? 'rgba(6,182,212,0.12)' : isHovered ? 'rgba(30,41,59,0.98)' : 'rgba(15,23,42,0.95)'}
-          stroke={isSelected || isConnecting ? '#06b6d4' : isHovered ? `${dt.color}80` : 'rgba(51,65,85,0.7)'}
+          fill={isSelected || isConnecting ? 'rgba(20,184,166,0.12)' : isHovered ? 'rgba(27,35,31,0.98)' : 'rgba(15,21,19,0.95)'}
+          stroke={isSelected || isConnecting ? '#14b8a6' : isHovered ? `${dt.color}80` : 'rgba(70,82,76,0.7)'}
           strokeWidth={isSelected || isConnecting ? 1.5 : 1}
           style={{ filter: isSelected ? `drop-shadow(0 0 12px ${glowColor}55)` : 'none', transition: 'all 0.15s' }}
         />
         {vlanColor && <rect x={0} y={0} width={NODE_W} height={2.5} rx={7} fill={vlanColor} opacity={0.9} />}
         <svg x={0} y={2} width={NODE_W} height={NODE_H - 16} viewBox="0 0 90 50" overflow="visible">
-          {IconEl(isSelected || isConnecting ? '#06b6d4' : dt.color)}
+          {IconEl(isSelected || isConnecting ? '#14b8a6' : dt.color)}
         </svg>
         <text x={NODE_W/2} y={NODE_H-14} textAnchor="middle" fontSize={8.5} fontWeight="500"
-          fill={isSelected ? '#e2e8f0' : '#94a3b8'} fontFamily="Inter, sans-serif">
-          {node.label.length > 14 ? node.label.slice(0, 13) + '…' : node.label}
+          fill={isSelected ? '#e8f3ee' : '#9aaba3'} fontFamily="Inter, sans-serif">
+          {node.label.length > 14 ? node.label.slice(0, 13) + '...' : node.label}
         </text>
         {node.ip && (
-          <text x={NODE_W/2} y={NODE_H-4} textAnchor="middle" fontSize={6.5} fill="#475569" fontFamily="JetBrains Mono, monospace">
+          <text x={NODE_W/2} y={NODE_H-4} textAnchor="middle" fontSize={6.5} fill="#68766f" fontFamily="JetBrains Mono, monospace">
             {node.ip}
           </text>
         )}
         {isConnecting && (
           <>
-            <circle cx={NODE_W/2} cy={NODE_H/2} r={52} fill="none" stroke="#06b6d4" strokeWidth={1.5} className="wave-ring-1" opacity={0.6} />
-            <circle cx={NODE_W/2} cy={NODE_H/2} r={52} fill="none" stroke="#06b6d4" strokeWidth={1} className="wave-ring-2" opacity={0.4} />
+            <circle cx={NODE_W/2} cy={NODE_H/2} r={52} fill="none" stroke="#14b8a6" strokeWidth={1.5} className="wave-ring-1" opacity={0.6} />
+            <circle cx={NODE_W/2} cy={NODE_H/2} r={52} fill="none" stroke="#14b8a6" strokeWidth={1} className="wave-ring-2" opacity={0.4} />
           </>
         )}
         {isSelected && !isConnecting && (
-          <circle cx={NODE_W/2} cy={NODE_H/2} r={52} fill="none" stroke="#06b6d4" strokeWidth={1} className="wave-ring-1" opacity={0.35} />
+          <circle cx={NODE_W/2} cy={NODE_H/2} r={52} fill="none" stroke="#14b8a6" strokeWidth={1} className="wave-ring-1" opacity={0.35} />
         )}
         {/* Connect-mode port dots on hover */}
         {mode === 'connect' && isHovered && (
-          <circle cx={NODE_W/2} cy={NODE_H/2} r={NODE_W/2+2} fill="rgba(6,182,212,0.06)" stroke="rgba(6,182,212,0.5)" strokeWidth={1.5} strokeDasharray="4 3"/>
+          <circle cx={NODE_W/2} cy={NODE_H/2} r={NODE_W/2+2} fill="rgba(20,184,166,0.06)" stroke="rgba(20,184,166,0.5)" strokeWidth={1.5} strokeDasharray="4 3"/>
         )}
       </g>
     );
@@ -479,14 +502,14 @@ export default function TopologyCanvas({
         )}
         {/* Base line (static, slightly faded) */}
         <path d={path} fill="none"
-          stroke={isSelected ? '#06b6d4' : lt.color}
+          stroke={isSelected ? '#14b8a6' : lt.color}
           strokeWidth={isSelected ? 2.5 : isHovered ? 2 : 1.5}
           opacity={0.15}
           style={{ pointerEvents: 'none' }}
         />
         {/* Animated flowing line */}
         <path d={path} fill="none"
-          stroke={isSelected ? '#06b6d4' : lt.color}
+          stroke={isSelected ? '#14b8a6' : lt.color}
           strokeWidth={isSelected ? 2.5 : isHovered ? 2 : 1.5}
           strokeDasharray={isSelected ? '10 8' : lt.dash ? '6 10' : '10 8'}
           opacity={isSelected ? 0.9 : isHovered ? 0.8 : 0.55}
@@ -498,9 +521,9 @@ export default function TopologyCanvas({
         {(isHovered || isSelected) && (
           <g style={{ pointerEvents: 'none' }}>
             <rect x={mx-20} y={my-8} width={40} height={14} rx={5}
-              fill="rgba(10,18,36,0.9)" stroke={isSelected ? '#06b6d4' : lt.color} strokeWidth={0.8} />
+              fill="rgba(14,20,18,0.92)" stroke={isSelected ? '#14b8a6' : lt.color} strokeWidth={0.8} />
             <text x={mx} y={my+0.5} textAnchor="middle" fontSize={7.5} fontFamily="Inter, sans-serif"
-              fill={isSelected ? '#06b6d4' : '#94a3b8'} dominantBaseline="middle">
+              fill={isSelected ? '#14b8a6' : '#9aaba3'} dominantBaseline="middle">
               {link.label || lt.label}
             </text>
           </g>
@@ -508,8 +531,8 @@ export default function TopologyCanvas({
         {/* Endpoint dots */}
         {(isSelected || isHovered) && (
           <>
-            <circle cx={x1} cy={y1} r={3} fill={isSelected ? '#06b6d4' : lt.color} opacity={0.8} style={{ pointerEvents: 'none' }} />
-            <circle cx={x2} cy={y2} r={3} fill={isSelected ? '#06b6d4' : lt.color} opacity={0.8} style={{ pointerEvents: 'none' }} />
+            <circle cx={x1} cy={y1} r={3} fill={isSelected ? '#14b8a6' : lt.color} opacity={0.8} style={{ pointerEvents: 'none' }} />
+            <circle cx={x2} cy={y2} r={3} fill={isSelected ? '#14b8a6' : lt.color} opacity={0.8} style={{ pointerEvents: 'none' }} />
           </>
         )}
       </g>
@@ -533,24 +556,25 @@ export default function TopologyCanvas({
       <g key={room.id}>
         <rect x={room.x} y={room.y} width={room.w} height={room.h}
           fill={room.color || 'rgba(59,130,246,0.06)'}
-          stroke={isSelected ? 'rgba(6,182,212,0.7)' : 'rgba(71,85,105,0.25)'}
+          stroke={isSelected ? 'rgba(20,184,166,0.7)' : 'rgba(75,87,80,0.25)'}
           strokeWidth={isSelected ? 1.5 : 1} strokeDasharray="8 5" rx={6}
           style={{ pointerEvents: 'none' }}
         />
-        <rect x={room.x+6} y={room.y+5} width={room.label.length*5.5+12} height={14} rx={4} fill="rgba(15,23,42,0.7)" style={{ pointerEvents: 'none' }} />
+        <rect x={room.x+6} y={room.y+5} width={room.label.length*5.5+12} height={14} rx={4} fill="rgba(14,20,18,0.72)" style={{ pointerEvents: 'none' }} />
         <text x={room.x+12} y={room.y+13} fontSize={9} fontWeight="500"
-          fill={isSelected ? 'rgba(6,182,212,0.9)' : 'rgba(148,163,184,0.8)'}
+          fill={isSelected ? 'rgba(20,184,166,0.9)' : 'rgba(154,171,163,0.8)'}
           fontFamily="Inter, sans-serif" dominantBaseline="middle"
           style={{ pointerEvents: 'none' }}>{room.label}</text>
-        {/* Resize handles — only when selected */}
+        {/* Resize handles - only when selected */}
         {isSelected && handles.map(h => (
           <rect key={h.id}
             x={h.x - HS/2} y={h.y - HS/2} width={HS} height={HS}
-            fill="#06b6d4" stroke="rgba(255,255,255,0.85)" strokeWidth={1.2} rx={1.5}
+            fill="#14b8a6" stroke="rgba(255,255,255,0.85)" strokeWidth={1.2} rx={1.5}
             style={{ cursor: h.cursor }}
             onMouseDown={(e) => {
               e.stopPropagation();
               const { x, y } = svgToCanvas(e.clientX, e.clientY);
+              onBeforeChange && onBeforeChange();
               setResizingRoom({ id: room.id, handle: h.id, origRoom: { ...room }, startX: x, startY: y });
             }}
           />
@@ -568,20 +592,21 @@ export default function TopologyCanvas({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
         style={{ background: 'transparent' }}
       >
         <defs>
           <pattern id="grid-dots" width={30*zoom} height={30*zoom} patternUnits="userSpaceOnUse"
             x={pan.x%(30*zoom)} y={pan.y%(30*zoom)}>
-            <circle cx={0} cy={0} r={0.8} fill="rgba(71,85,105,0.25)" />
+            <circle cx={0} cy={0} r={0.8} fill="rgba(75,87,80,0.25)" />
           </pattern>
           <pattern id="grid-major" width={120*zoom} height={120*zoom} patternUnits="userSpaceOnUse"
             x={pan.x%(120*zoom)} y={pan.y%(120*zoom)}>
-            <path d={`M ${120*zoom} 0 L 0 0 0 ${120*zoom}`} fill="none" stroke="rgba(71,85,105,0.07)" strokeWidth="0.5" />
+            <path d={`M ${120*zoom} 0 L 0 0 0 ${120*zoom}`} fill="none" stroke="rgba(75,87,80,0.07)" strokeWidth="0.5" />
           </pattern>
           <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
-            <polygon points="0 0, 6 2, 0 4" fill="rgba(100,116,139,0.7)" />
+            <polygon points="0 0, 6 2, 0 4" fill="rgba(122,135,128,0.7)" />
           </marker>
         </defs>
 
@@ -599,9 +624,9 @@ export default function TopologyCanvas({
             const path = getCurvePath(src.x+NODE_W/2, src.y+NODE_H/2, mouseCanvas.x, mouseCanvas.y);
             return (
               <g style={{ pointerEvents: 'none' }}>
-                <path d={path} fill="none" stroke="#06b6d4" strokeWidth={2} strokeDasharray="8 4" opacity={0.8} />
+                <path d={path} fill="none" stroke="#14b8a6" strokeWidth={2} strokeDasharray="8 4" opacity={0.8} />
                 <circle cx={mouseCanvas.x} cy={mouseCanvas.y} r={5}
-                  fill="rgba(6,182,212,0.3)" stroke="#06b6d4" strokeWidth={1.5} />
+                  fill="rgba(20,184,166,0.3)" stroke="#14b8a6" strokeWidth={1.5} />
               </g>
             );
           })()}
@@ -609,7 +634,7 @@ export default function TopologyCanvas({
           {/* Multi-select highlights */}
           {selectedIds && selectedIds.length > 1 && nodes.filter(n => selectedIds.includes(n.id)).map(n => (
             <rect key={`sel-${n.id}`} x={n.x-4} y={n.y-4} width={NODE_W+8} height={NODE_H+8} rx={10}
-              fill="rgba(6,182,212,0.07)" stroke="rgba(6,182,212,0.5)" strokeWidth={1.5} strokeDasharray="5 3"
+              fill="rgba(20,184,166,0.07)" stroke="rgba(20,184,166,0.5)" strokeWidth={1.5} strokeDasharray="5 3"
               style={{ pointerEvents: 'none' }} />
           ))}
 
@@ -620,7 +645,7 @@ export default function TopologyCanvas({
             <rect
               x={selectionRect.x} y={selectionRect.y}
               width={selectionRect.w} height={selectionRect.h}
-              fill="rgba(6,182,212,0.06)" stroke="rgba(6,182,212,0.7)"
+              fill="rgba(20,184,166,0.06)" stroke="rgba(20,184,166,0.7)"
               strokeWidth={1.5} strokeDasharray="6 3" rx={4}
               style={{ pointerEvents: 'none' }}
             />
@@ -631,7 +656,7 @@ export default function TopologyCanvas({
               x={drawingRoom.w<0 ? drawingRoom.x+drawingRoom.w : drawingRoom.x}
               y={drawingRoom.h<0 ? drawingRoom.y+drawingRoom.h : drawingRoom.y}
               width={Math.abs(drawingRoom.w)} height={Math.abs(drawingRoom.h)}
-              fill="rgba(6,182,212,0.05)" stroke="rgba(6,182,212,0.5)" strokeWidth={1.5} strokeDasharray="8 4" rx={6}
+              fill="rgba(20,184,166,0.05)" stroke="rgba(20,184,166,0.5)" strokeWidth={1.5} strokeDasharray="8 4" rx={6}
             />
           )}
         </g>
@@ -640,7 +665,7 @@ export default function TopologyCanvas({
       {/* Link hover tooltip (outside SVG, in HTML) */}
       {tooltip && (
         <div
-          className="fixed z-50 pointer-events-none bg-card/95 border border-border rounded-xl px-3 py-2 shadow-2xl text-xs"
+          className="fixed z-50 pointer-events-none bg-card/95 border border-border rounded-lg px-3 py-2 shadow-2xl text-xs"
           style={{ left: tooltip.x + 12, top: tooltip.y - 40 }}
         >
           {(() => {
@@ -654,7 +679,7 @@ export default function TopologyCanvas({
                   <span className="font-medium text-foreground">{lt.label}</span>
                   <span className="text-muted-foreground font-mono">{lt.speed}</span>
                 </div>
-                <div className="text-muted-foreground">{src?.label} → {tgt?.label}</div>
+                <div className="text-muted-foreground">{src?.label} to {tgt?.label}</div>
                 {tooltip.link.label && <div className="text-primary/80">{tooltip.link.label}</div>}
                 <div className="text-[9px] text-muted-foreground/60 pt-0.5 border-t border-border">Right-click to delete</div>
               </div>

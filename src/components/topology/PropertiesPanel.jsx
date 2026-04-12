@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { DEVICE_TYPES, LINK_TYPES } from '../../lib/topologyData';
 import { Trash2, Network, Link2, Square, ChevronDown } from 'lucide-react';
 
@@ -43,7 +43,7 @@ function SelectField({ label, value, onChange, options }) {
         onChange={e => onChange(e.target.value)}
         className="w-full bg-muted/60 border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary transition-colors"
       >
-        <option value="">— None —</option>
+        <option value="">- None -</option>
         {options.map(o => (
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
@@ -53,7 +53,7 @@ function SelectField({ label, value, onChange, options }) {
 }
 
 export default function PropertiesPanel({ selectedId, nodes, links, rooms, vlans, onUpdate, onDelete }) {
-  const [form, setForm] = useState({});
+  const [form, setForm] = useState(/** @type {Record<string, any>} */ ({}));
 
   const selectedNode = nodes.find(n => n.id === selectedId);
   const selectedLink = links.find(l => l.id === selectedId);
@@ -101,7 +101,7 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, vlans
         {type === 'node' && (
           <>
             {/* Device identity badge */}
-            <div className="mx-4 mt-3 mb-1 flex items-center gap-3 p-3 bg-muted/50 border border-border rounded-xl">
+            <div className="mx-4 mt-3 mb-1 flex items-center gap-3 p-3 bg-muted/50 border border-border rounded-lg">
               <span className="text-3xl leading-none" style={{ color: dt?.color }}>{dt?.icon}</span>
               <div>
                 <div className="text-xs font-semibold text-foreground">{dt?.label}</div>
@@ -126,7 +126,7 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, vlans
                 label="VLAN"
                 value={form.vlan}
                 onChange={v => saveKey('vlan', v || null)}
-                options={vlans.map(v => ({ value: v.name, label: `${v.name} — ${v.label}` }))}
+                options={vlans.map(v => ({ value: v.name, label: `${v.name} - ${v.label}` }))}
               />
             </Section>
 
@@ -143,7 +143,7 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, vlans
         {type === 'link' && (
           <>
             {lt && (
-              <div className="mx-4 mt-3 mb-1 flex items-center gap-3 p-3 bg-muted/50 border border-border rounded-xl">
+              <div className="mx-4 mt-3 mb-1 flex items-center gap-3 p-3 bg-muted/50 border border-border rounded-lg">
                 <svg width="32" height="14" className="flex-shrink-0">
                   <line x1="2" y1="7" x2="30" y2="7" stroke={lt.color} strokeWidth="2.5" strokeDasharray={lt.dash ? '6 4' : undefined} />
                 </svg>
@@ -157,7 +157,7 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, vlans
             <div className="mx-4 mt-2 mb-1 p-2.5 bg-muted/30 border border-border/50 rounded-lg">
               <div className="text-[10px] text-muted-foreground">
                 <span className="text-foreground font-medium">{nodes.find(n => n.id === item.source)?.label || '?'}</span>
-                <span className="mx-1.5 opacity-50">→</span>
+                <span className="mx-1.5 opacity-50">to</span>
                 <span className="text-foreground font-medium">{nodes.find(n => n.id === item.target)?.label || '?'}</span>
               </div>
             </div>

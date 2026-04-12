@@ -1,6 +1,6 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Sparkles, Send, ChevronDown, ChevronUp } from 'lucide-react';
-import { getLocalStubTopology } from '@/lib/localTopologyStub';
+import { generateTopologyFromPrompt, getTopologyAiProviderLabel } from '@/lib/topologyAiProvider';
 import { generateId } from '../../lib/topologyData';
 
 const EXAMPLE_PROMPTS = [
@@ -9,6 +9,8 @@ const EXAMPLE_PROMPTS = [
   'Home office with NAS, IP cameras, and mesh WiFi system',
   'Retail store with POS terminals, guest WiFi, and security cameras',
   'University campus with student, faculty, and admin network segments',
+  'Warehouse with IoT sensors, cameras, and a protected operations VLAN',
+  'Data center edge with redundant routers, firewalls, and storage tier',
 ];
 
 export default function AIPanel({ onTopologyGenerated, onRefinement, hasTopology }) {
@@ -17,13 +19,14 @@ export default function AIPanel({ onTopologyGenerated, onRefinement, hasTopology
   const [history, setHistory] = useState([]);
   const [showExamples, setShowExamples] = useState(false);
   const [error, setError] = useState('');
+  const providerLabel = getTopologyAiProviderLabel();
 
   const generate = async (text, isRefinement = false) => {
     if (!text.trim()) return;
     setLoading(true);
     setError('');
     try {
-      const topology = getLocalStubTopology(text);
+      const topology = await generateTopologyFromPrompt(text);
 
       // Ensure all IDs are unique
       const fixedTopology = {
@@ -42,9 +45,6 @@ export default function AIPanel({ onTopologyGenerated, onRefinement, hasTopology
         source: idMap[l.source] || l.source,
         target: idMap[l.target] || l.target,
       }));
-      const vlanNameMap = {};
-      topology.vlans.forEach((v, i) => { vlanNameMap[v.name] = fixedTopology.vlans[i].name; });
-
       const entry = {
         id: Date.now(),
         prompt: text,
@@ -59,7 +59,7 @@ export default function AIPanel({ onTopologyGenerated, onRefinement, hasTopology
         onTopologyGenerated(fixedTopology, text);
       }
       setPrompt('');
-    } catch (e) {
+    } catch {
       setError('AI generation failed. Please try again.');
     } finally {
       setLoading(false);
@@ -80,7 +80,7 @@ export default function AIPanel({ onTopologyGenerated, onRefinement, hasTopology
           <h2 className="text-sm font-semibold text-foreground">AI Topology Designer</h2>
         </div>
         <p className="text-[10px] text-muted-foreground leading-relaxed">
-          Describe your environment; Generate places a demo topology you can edit, save, and export.
+          {providerLabel} turns a site brief into an editable topology.
         </p>
       </div>
 
@@ -91,7 +91,7 @@ export default function AIPanel({ onTopologyGenerated, onRefinement, hasTopology
             value={prompt}
             onChange={e => setPrompt(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); } }}
-            placeholder={hasTopology ? 'Refine: add a DMZ, change WiFi coverage…' : 'Describe your network environment…'}
+            placeholder={hasTopology ? 'Refine: add a DMZ, change WiFi coverage...' : 'Describe your network environment...'}
             rows={4}
             className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary resize-none leading-relaxed"
           />
@@ -110,7 +110,7 @@ export default function AIPanel({ onTopologyGenerated, onRefinement, hasTopology
                   <span className="w-1 h-4 bg-primary-foreground rounded-full wave-bar-4 inline-block" />
                   <span className="w-1 h-3 bg-primary-foreground rounded-full wave-bar-5 inline-block" />
                 </span>
-                {hasTopology ? 'Refining…' : 'Generating…'}
+                {hasTopology ? 'Refining...' : 'Generating...'}
               </span>
             ) : (
               <>

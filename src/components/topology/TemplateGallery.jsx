@@ -1,10 +1,32 @@
 import { X, ArrowRight } from 'lucide-react';
 import { TEMPLATES } from '../../lib/topologyData';
+import { generatePromptTopology } from '../../lib/promptTopologyGenerator';
+
+const EXTRA_TEMPLATES = [
+  {
+    id: 'zero-trust-branch',
+    name: 'Zero-Trust Branch',
+    description: 'Identity-aware branch with guest isolation and app gateway',
+    icon: 'ZT',
+    prompt: 'Zero trust branch with SD-WAN edge, policy firewall, corporate WiFi, guest WiFi, and identity proxy',
+    data: generatePromptTopology('zero trust branch with SD-WAN edge and identity proxy'),
+  },
+  {
+    id: 'smart-warehouse',
+    name: 'Smart Warehouse',
+    description: 'Operations, camera, scanner, and IoT VLAN design',
+    icon: 'WH',
+    prompt: 'Warehouse with IoT sensors, cameras, scanners, and protected operations VLAN',
+    data: generatePromptTopology('warehouse with IoT sensors and protected operations VLAN'),
+  },
+];
 
 export default function TemplateGallery({ onSelect, onClose }) {
+  const templates = [...EXTRA_TEMPLATES, ...TEMPLATES];
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-card border border-border rounded-xl w-full max-w-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="bg-card border border-border rounded-lg w-full max-w-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
@@ -17,11 +39,11 @@ export default function TemplateGallery({ onSelect, onClose }) {
         </div>
 
         <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {TEMPLATES.map(t => (
+          {templates.map(t => (
             <button
               key={t.id}
               onClick={() => { onSelect(t); onClose(); }}
-              className="group text-left bg-muted hover:bg-secondary border border-border hover:border-primary/40 rounded-xl p-4 transition-all"
+              className="group text-left bg-muted hover:bg-secondary border border-border hover:border-primary/40 rounded-lg p-4 transition-all"
             >
               <div className="flex items-start gap-3">
                 <span className="text-3xl mt-0.5">{t.icon}</span>

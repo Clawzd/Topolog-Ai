@@ -1,133 +1,133 @@
-// Device type definitions
+﻿// Device type definitions
 export const DEVICE_TYPES = {
     router: {
       label: 'Router',
-      icon: '⬡',
+      icon: 'RT',
       color: '#06b6d4',
       shape: 'hexagon',
       defaultPorts: ['WAN', 'LAN1', 'LAN2', 'LAN3'],
     },
     switch: {
       label: 'Switch',
-      icon: '▦',
+      icon: 'SW',
       color: '#3b82f6',
       shape: 'rect',
       defaultPorts: ['Port1', 'Port2', 'Port3', 'Port4', 'Port5', 'Port6', 'Port7', 'Port8'],
     },
     ap: {
       label: 'Access Point',
-      icon: '◎',
+      icon: 'AP',
       color: '#8b5cf6',
       shape: 'circle',
       defaultPorts: ['Uplink', 'LAN'],
     },
     server: {
       label: 'Server',
-      icon: '▬',
+      icon: 'SRV',
       color: '#10b981',
       shape: 'rect',
       defaultPorts: ['ETH0', 'ETH1'],
     },
     firewall: {
       label: 'Firewall',
-      icon: '⛉',
+      icon: 'FW',
       color: '#ef4444',
       shape: 'diamond',
       defaultPorts: ['WAN', 'LAN', 'DMZ'],
     },
     cloud: {
       label: 'Cloud/ISP',
-      icon: '☁',
+      icon: 'WAN',
       color: '#64748b',
       shape: 'cloud',
       defaultPorts: ['Link1', 'Link2'],
     },
     pc: {
       label: 'Workstation',
-      icon: '▭',
+      icon: 'PC',
       color: '#f59e0b',
       shape: 'rect',
       defaultPorts: ['ETH0'],
     },
     laptop: {
       label: 'Laptop',
-      icon: '◫',
+      icon: 'LAP',
       color: '#f59e0b',
       shape: 'rect',
       defaultPorts: ['WiFi', 'ETH0'],
     },
     printer: {
       label: 'Printer',
-      icon: '▤',
+      icon: 'PRN',
       color: '#6b7280',
       shape: 'rect',
       defaultPorts: ['ETH0', 'WiFi'],
     },
     camera: {
       label: 'IP Camera',
-      icon: '◉',
+      icon: 'CAM',
       color: '#ec4899',
       shape: 'circle',
       defaultPorts: ['ETH0'],
     },
     nas: {
       label: 'NAS Storage',
-      icon: '▰',
+      icon: 'NAS',
       color: '#0891b2',
       shape: 'rect',
       defaultPorts: ['ETH0', 'ETH1'],
     },
     phone: {
       label: 'VoIP Phone',
-      icon: '◈',
+      icon: 'TEL',
       color: '#7c3aed',
       shape: 'rect',
       defaultPorts: ['ETH0'],
     },
     loadbalancer: {
       label: 'Load Balancer',
-      icon: '⇌',
+      icon: 'LB',
       color: '#06b6d4',
       shape: 'rect',
       defaultPorts: ['WAN', 'LAN1', 'LAN2'],
     },
     tablet: {
       label: 'Tablet',
-      icon: '▯',
+      icon: 'TAB',
       color: '#f59e0b',
       shape: 'rect',
       defaultPorts: ['WiFi'],
     },
     iot: {
       label: 'IoT Gateway',
-      icon: '⬡',
+      icon: 'IOT',
       color: '#10b981',
       shape: 'rect',
       defaultPorts: ['ETH0', 'WiFi', 'Zigbee'],
     },
     pdu: {
       label: 'UPS / PDU',
-      icon: '⚡',
+      icon: 'PWR',
       color: '#f97316',
       shape: 'rect',
       defaultPorts: ['ETH0'],
     },
     patchpanel: {
       label: 'Patch Panel',
-      icon: '▦',
+      icon: 'PP',
       color: '#64748b',
       shape: 'rect',
       defaultPorts: ['Port1', 'Port2', 'Port3', 'Port4'],
     },
     smarttv: {
       label: 'Smart TV',
-      icon: '▬',
+      icon: 'TV',
       color: '#8b5cf6',
       shape: 'rect',
       defaultPorts: ['WiFi', 'ETH0'],
     },
   };
-  
+
   export const LINK_TYPES = {
     ethernet: { label: 'Ethernet', color: '#06b6d4', dash: false, speed: '1Gbps' },
     fiber: { label: 'Fiber', color: '#8b5cf6', dash: false, speed: '10Gbps' },
@@ -135,15 +135,15 @@ export const DEVICE_TYPES = {
     wan: { label: 'WAN', color: '#64748b', dash: true, speed: 'Variable' },
     vpn: { label: 'VPN Tunnel', color: '#10b981', dash: true, speed: 'Variable' },
   };
-  
+
   // Mock AI topology responses
   export const MOCK_AI_RESPONSES = {
     default: (prompt) => generateMockTopology(prompt),
   };
-  
+
   function generateMockTopology(prompt) {
     const lower = prompt.toLowerCase();
-  
+
     if (lower.includes('office') || lower.includes('corporate')) {
       return officeTopology();
     } else if (lower.includes('home') || lower.includes('house') || lower.includes('apartment')) {
@@ -158,7 +158,6 @@ export const DEVICE_TYPES = {
       return officeTopology();
     }
   }
-  
   function officeTopology() {
     return {
       nodes: [
@@ -204,7 +203,7 @@ export const DEVICE_TYPES = {
       summary: 'Corporate office network with 3 floors, firewall protection, segmented VLANs for corporate, operations, and guest access. Core switching with redundant paths.',
     };
   }
-  
+
   function homeTopology() {
     return {
       nodes: [
@@ -239,7 +238,7 @@ export const DEVICE_TYPES = {
       summary: 'Home network with dual WiFi access points for full coverage, NAS storage, and IP cameras. Suitable for 3-bedroom house.',
     };
   }
-  
+
   function dataCenterTopology() {
     return {
       nodes: [
@@ -284,7 +283,7 @@ export const DEVICE_TYPES = {
       summary: 'High-availability data center with redundant core routers, top-of-rack switching, and tiered compute/database architecture.',
     };
   }
-  
+
   function campusTopology() {
     return {
       nodes: [
@@ -327,7 +326,7 @@ export const DEVICE_TYPES = {
       summary: 'Campus network with multi-building distribution, separate VLANs for students, faculty, and library/guest access.',
     };
   }
-  
+
   function retailTopology() {
     return {
       nodes: [
@@ -366,14 +365,14 @@ export const DEVICE_TYPES = {
       summary: 'Retail store network with PCI-compliant POS segment, guest WiFi isolation, and dedicated security camera VLAN.',
     };
   }
-  
+
   // Templates
   export const TEMPLATES = [
     {
       id: 'office',
       name: 'Corporate Office',
       description: 'Multi-department office with VLANs, firewall, and WiFi',
-      icon: '🏢',
+      icon: 'OFF',
       prompt: 'Corporate office with 3 departments, firewall, core switch, WiFi access points, file server, and 10 workstations',
       data: officeTopology(),
     },
@@ -381,7 +380,7 @@ export const DEVICE_TYPES = {
       id: 'home',
       name: 'Home Network',
       description: 'Residential network with WiFi mesh and NAS',
-      icon: '🏠',
+      icon: 'HOME',
       prompt: 'Home network with dual WiFi access points, NAS storage, and IP cameras',
       data: homeTopology(),
     },
@@ -389,7 +388,7 @@ export const DEVICE_TYPES = {
       id: 'datacenter',
       name: 'Data Center',
       description: 'High-availability data center with redundant paths',
-      icon: '🖥️',
+      icon: 'DC',
       prompt: 'Data center with redundant core routers, top-of-rack switches, web servers, and database tier',
       data: dataCenterTopology(),
     },
@@ -397,7 +396,7 @@ export const DEVICE_TYPES = {
       id: 'campus',
       name: 'Campus / School',
       description: 'Multi-building campus with student/faculty VLANs',
-      icon: '🏫',
+      icon: 'CAMP',
       prompt: 'University campus with 3 buildings, student and faculty VLANs, LMS server, and library WiFi',
       data: campusTopology(),
     },
@@ -405,16 +404,16 @@ export const DEVICE_TYPES = {
       id: 'retail',
       name: 'Retail Store',
       description: 'PCI-compliant POS network with guest WiFi',
-      icon: '🏪',
+      icon: 'SHOP',
       prompt: 'Retail store with POS terminals, guest WiFi, security cameras, and back office server',
       data: retailTopology(),
     },
   ];
-  
+
   export function generateId(prefix = 'id') {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
   }
-  
+
   export function getTopologyStats(nodes, links, vlans) {
     const typeCounts = {};
     nodes.forEach(n => {
@@ -427,4 +426,3 @@ export const DEVICE_TYPES = {
       typeCounts,
     };
   }
-  

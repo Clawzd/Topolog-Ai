@@ -1,0 +1,8 @@
+{
+  "name": "TopologAi Studio",
+  "short_name": "TopologAi",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1413",
+  "theme_color": "#14b8a6"
+}

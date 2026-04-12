@@ -57,7 +57,7 @@ export default function MiniMap({ nodes, links, rooms, zoom, pan, canvasSize }) 
               x={p.x} y={p.y}
               width={r.w * scale} height={r.h * scale}
               fill={r.color || 'rgba(59,130,246,0.1)'}
-              stroke="rgba(71,85,105,0.3)"
+              stroke="rgba(75,87,80,0.3)"
               strokeWidth={0.5}
               rx={1}
             />
@@ -73,7 +73,7 @@ export default function MiniMap({ nodes, links, rooms, zoom, pan, canvasSize }) 
           const p2 = toMM(tgt.x + NODE_W / 2, tgt.y + NODE_H / 2);
           return (
             <line key={link.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-              stroke="rgba(100,116,139,0.5)" strokeWidth={0.8} />
+              stroke="rgba(122,135,128,0.5)" strokeWidth={0.8} />
           );
         })}
 
@@ -84,8 +84,8 @@ export default function MiniMap({ nodes, links, rooms, zoom, pan, canvasSize }) 
             <rect key={n.id}
               x={p.x} y={p.y}
               width={NODE_W * scale} height={NODE_H * scale}
-              fill="rgba(6,182,212,0.4)"
-              stroke="rgba(6,182,212,0.7)"
+              fill="rgba(20,184,166,0.4)"
+              stroke="rgba(20,184,166,0.7)"
               strokeWidth={0.5}
               rx={1}
             />
@@ -95,8 +95,8 @@ export default function MiniMap({ nodes, links, rooms, zoom, pan, canvasSize }) 
         {/* Viewport indicator */}
         <rect
           x={vpX} y={vpY} width={vpW} height={vpH}
-          fill="rgba(6,182,212,0.05)"
-          stroke="rgba(6,182,212,0.6)"
+          fill="rgba(20,184,166,0.05)"
+          stroke="rgba(20,184,166,0.6)"
           strokeWidth={1}
           rx={2}
         />

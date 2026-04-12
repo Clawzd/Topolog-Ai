@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import { generateId } from '../../lib/topologyData';
 
-const VLAN_COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#ec4899', '#06b6d4', '#f97316'];
+const VLAN_COLORS = ['#14b8a6', '#f59e0b', '#22c55e', '#ef4444', '#ec4899', '#38bdf8', '#a3e635', '#f97316'];
 
 export default function VlanManager({ vlans, setVlans, onClose }) {
   const [newVlan, setNewVlan] = useState({ name: '', label: '', subnet: '', color: VLAN_COLORS[0] });
@@ -21,7 +21,7 @@ export default function VlanManager({ vlans, setVlans, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-card border border-border rounded-xl w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="bg-card border border-border rounded-lg w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 className="text-sm font-semibold text-foreground">VLAN / Subnet Manager</h2>

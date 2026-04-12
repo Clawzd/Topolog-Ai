@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { DEVICE_TYPES } from '../../lib/topologyData';
 import { Search, ChevronDown, ChevronRight } from 'lucide-react';
 
@@ -33,7 +33,7 @@ export default function LeftPanel({ onDeviceDragStart, mode, setMode }) {
           <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             className="w-full bg-muted text-foreground text-xs pl-7 pr-2 py-1.5 rounded border border-border focus:outline-none focus:border-primary placeholder-muted-foreground"
-            placeholder="Search devices…"
+            placeholder="Search devices..."
             value={search}
             onChange={e => setSearch(e.target.value)}
           />

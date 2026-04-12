@@ -1,4 +1,4 @@
-import { MousePointer2, Link2, Move, Square, ZoomIn, ZoomOut, Maximize2, Trash2, RotateCcw } from 'lucide-react';
+﻿import { MousePointer2, Link2, Move, Square, ZoomIn, ZoomOut, Maximize2, Trash2, RotateCcw } from 'lucide-react';
 
 const MODES = [
   { id: 'select', icon: MousePointer2, label: 'Select / Move', key: 'V' },
@@ -7,7 +7,7 @@ const MODES = [
   { id: 'room', icon: Square, label: 'Draw Room', key: 'R' },
 ];
 
-function ToolBtn({ onClick, title, shortcut, children, active, danger, disabled }) {
+function ToolBtn({ onClick, title, shortcut, children, active = false, danger = false, disabled = false }) {
   return (
     <button
       onClick={onClick}
@@ -37,7 +37,7 @@ export default function Toolbar({ mode, setMode, zoom, setZoom, setPan, onDelete
   const resetView = () => { setZoom(1); setPan({ x: 60, y: 60 }); };
 
   return (
-    <div className="flex items-center gap-0.5 px-2 py-1.5 bg-card/95 backdrop-blur-md border border-border/80 rounded-xl shadow-2xl shadow-black/40">
+    <div className="flex items-center gap-0.5 px-2 py-1.5 bg-card/95 backdrop-blur-md border border-border/80 rounded-lg shadow-2xl shadow-black/40">
       {/* Mode tools */}
       <div className="flex items-center gap-0.5 bg-muted/50 rounded-lg p-0.5 mr-1">
         {MODES.map(({ id, icon: Icon, label, key }) => (
@@ -70,7 +70,7 @@ export default function Toolbar({ mode, setMode, zoom, setZoom, setPan, onDelete
       <Divider />
 
       {/* Undo & Delete */}
-      <ToolBtn onClick={onUndo} title="Undo" shortcut="⌘Z">
+      <ToolBtn onClick={onUndo} title="Undo" shortcut="Ctrl+Z">
         <RotateCcw className="w-3.5 h-3.5" />
       </ToolBtn>
       {hasSelection && (
