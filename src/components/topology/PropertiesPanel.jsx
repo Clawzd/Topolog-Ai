@@ -239,8 +239,21 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
               </Section>
             )}
 
+            {form.type === 'switch' && (
+              <Field
+                label="Port count (modeled)"
+                value={form.portCount ?? 24}
+                onChange={(v) => change('portCount', Number(v))}
+                onBlur={save}
+                type="number"
+              />
+            )}
+
             {(form.type === 'switch' || form.type === 'router') && (() => {
-              const portCount = Math.min(24, Math.max(8, (DEVICE_TYPES[form.type]?.defaultPorts || []).length));
+              const portCount =
+                form.type === 'switch'
+                  ? Math.min(96, Math.max(4, Number.isFinite(Number(form.portCount)) ? Number(form.portCount) : 24))
+                  : Math.min(24, Math.max(8, (DEVICE_TYPES[form.type]?.defaultPorts || []).length));
               const uplinks = links
                 .filter((l) => l.source === selectedId || l.target === selectedId)
                 .filter((l) => l.type !== 'wifi')

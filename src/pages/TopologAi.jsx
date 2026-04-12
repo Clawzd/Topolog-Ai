@@ -146,6 +146,7 @@ export default function TopologAi() {
         vlans: debouncedGraph.vlans,
         barriers: debouncedGraph.barriers,
         vlanZones: debouncedGraph.vlanZones,
+        powerZones: debouncedGraph.powerZones,
         excludeNodeId: failureKind === 'node' ? failureTarget : null,
         excludeLinkId: failureKind === 'link' ? failureTarget : null,
       }),
@@ -161,6 +162,7 @@ export default function TopologAi() {
         vlans: debouncedGraph.vlans,
         barriers: debouncedGraph.barriers,
         vlanZones: debouncedGraph.vlanZones,
+        powerZones: debouncedGraph.powerZones,
       }),
     [debouncedGraph]
   );
@@ -175,13 +177,19 @@ export default function TopologAi() {
       vlans: v,
       barriers: b,
       vlanZones: vz,
+      powerZones: debouncedGraph.powerZones,
       excludeNodeId: failureTarget,
     });
     const ids = new Set();
     n.forEach((node) => {
       const b = baselineSnapshot.deviceStates[node.id]?.smartState;
       const a = after.deviceStates[node.id]?.smartState;
-      if (a !== b && (a === 'no_network' || a === 'isolated' || a === 'slow_network')) ids.add(node.id);
+      if (
+        a !== b &&
+        (a === 'no_network' || a === 'isolated' || a === 'slow_network' || a === 'no_internet')
+      ) {
+        ids.add(node.id);
+      }
     });
     return ids;
   }, [failureTarget, failureKind, debouncedGraph, baselineSnapshot]);

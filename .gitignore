@@ -15,6 +15,9 @@ yarn-debug.log*
 yarn-error.log*
 *.log
 
+# Local agent / IDE worktrees (never commit nested copies)
+.claude/
+
 # Editor / OS
 .DS_Store
 Thumbs.db

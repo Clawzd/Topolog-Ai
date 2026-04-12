@@ -29,7 +29,7 @@ export default function StatsPanel({
   const onlineApprox = smartSnapshot?.deviceStates
     ? nodes.filter((n) => {
         const st = smartSnapshot.deviceStates[n.id]?.smartState;
-        return st && !['no_network', 'isolated', 'power_missing'].includes(st);
+        return st && !['no_network', 'isolated', 'power_missing', 'no_internet'].includes(st);
       }).length
     : null;
   const warnCount = smartSnapshot?.findings?.length ?? null;

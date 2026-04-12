@@ -225,6 +225,11 @@ export default function TopologyCanvas({
     [heatmapMode, nodes]
   );
 
+  const unprotectedWanLinkSet = useMemo(
+    () => new Set(smartSnapshot?.unprotectedWanLinkIds || []),
+    [smartSnapshot?.unprotectedWanLinkIds]
+  );
+
   const badgeStyle = (tone) => {
     const map = {
       excellent: { bg: 'rgba(16,185,129,0.95)', fg: '#fff' },
@@ -874,6 +879,7 @@ export default function TopologyCanvas({
     const dashMain = lt.dash ? (link.type === 'vpn' ? '5 8' : '6 10') : (isSelected ? '10 8' : '10 8');
     const crossings = linkBarrierMarkers.get(link.id) || [];
     const isFiber = link.type === 'fiber';
+    const wanEdgeRisk = unprotectedWanLinkSet.has(link.id);
 
     return (
       <g key={link.id} style={{ opacity: dimmed ? 0.1 : 1, transition: 'opacity 0.2s' }}>
@@ -908,10 +914,18 @@ export default function TopologyCanvas({
         />
         {/* Animated flowing line */}
         <path d={path} fill="none"
-          stroke={heatmapMode === 'bandwidth' ? heatStroke : (isSelected ? TC.primary : lt.color)}
-          strokeWidth={strokeW}
+          stroke={
+            heatmapMode === 'bandwidth'
+              ? heatStroke
+              : wanEdgeRisk
+                ? '#ef4444'
+                : isSelected
+                  ? TC.primary
+                  : lt.color
+          }
+          strokeWidth={strokeW + (wanEdgeRisk ? 0.6 : 0)}
           strokeDasharray={heatmapMode === 'bandwidth' ? dashMain : dashMain}
-          opacity={isSelected ? 0.9 : isHovered ? 0.8 : 0.55}
+          opacity={isSelected ? 0.9 : isHovered ? 0.8 : wanEdgeRisk ? 0.88 : 0.55}
           className={showTrafficFlow ? 'link-flow-fast' : isSelected ? 'link-flow-fast' : 'link-flow'}
           style={{ pointerEvents: 'none', transition: 'stroke-width 0.15s, opacity 0.15s' }}
         />
