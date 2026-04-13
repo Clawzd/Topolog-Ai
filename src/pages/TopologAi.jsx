@@ -1282,6 +1282,7 @@ export default function TopologAi() {
                 onTopologyGenerated={handleTopologyGenerated}
                 onRefinement={handleRefinement}
                 hasTopology={hasTopology}
+                getMapState={() => ({ nodes, rooms, barriers })}
               />
             </>
           )}

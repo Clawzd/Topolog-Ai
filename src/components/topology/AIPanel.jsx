@@ -22,6 +22,7 @@ const EXAMPLE_PROMPTS = [
  * @property {(topology: any, prompt: string) => void} onTopologyGenerated
  * @property {(topology: any, prompt: string) => void} onRefinement
  * @property {boolean} hasTopology
+ * @property {() => object} [getMapState] - Returns current canvas state for AI context
  */
 
 const AIPanel = forwardRef(
@@ -29,7 +30,7 @@ const AIPanel = forwardRef(
    * @param {AIPanelProps} props
    * @param {import('react').ForwardedRef<{ submitGenerate: () => void }>} ref
    */
-  function AIPanel({ onTopologyGenerated, onRefinement, hasTopology }, ref) {
+  function AIPanel({ onTopologyGenerated, onRefinement, hasTopology, getMapState }, ref) {
   const [prompt, setPrompt] = useState('');
   const [exampleRotate, setExampleRotate] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -51,7 +52,8 @@ const AIPanel = forwardRef(
     setLoading(true);
     setError('');
     try {
-      const topology = await generateTopologyFromPrompt(cleanText);
+      const mapState = getMapState ? getMapState() : undefined;
+      const topology = await generateTopologyFromPrompt(cleanText, mapState);
 
       // Ensure all IDs are unique
       const fixedTopology = {
