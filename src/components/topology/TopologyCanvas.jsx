@@ -564,6 +564,27 @@ export default function TopologyCanvas({
 
   const handleWheel = (e) => {
     e.preventDefault();
+
+    // ctrlKey=true → pinch gesture (trackpad) or Ctrl+scroll (mouse) — always zoom
+    if (e.ctrlKey) {
+      const factor = Math.exp(-e.deltaY / 200);
+      const rect = svgRef.current.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      setZoom(z => {
+        const nz = Math.min(3, Math.max(0.5, z * factor));
+        setPan(p => ({ x: mx - (mx - p.x) * (nz / z), y: my - (my - p.y) * (nz / z) }));
+        return nz;
+      });
+      return;
+    }
+
+    // Two-finger scroll on trackpad: horizontal component present, or pixel-mode with small deltas → pan
+    if (e.deltaX !== 0 || (e.deltaMode === 0 && Math.abs(e.deltaY) < 50)) {
+      setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+      return;
+    }
+
+    // Mouse wheel (line/page mode or large pixel delta) → zoom toward cursor
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     const rect = svgRef.current.getBoundingClientRect();
     const mx = e.clientX - rect.left, my = e.clientY - rect.top;

@@ -82,6 +82,7 @@ export default function TopologAi() {
   const [failureModalOpen, setFailureModalOpen] = useState(false);
   const [generateAnimKey, setGenerateAnimKey] = useState(0);
   const aiSubmitRef = useRef(null);
+  const spacebarPanRef = useRef({ active: false, prevMode: 'select' });
   const [linkTypePopup, setLinkTypePopup] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [renameModal, setRenameModal] = useState(null); // {title, value, onConfirm}
@@ -1204,9 +1205,25 @@ export default function TopologAi() {
         }
       }
       if (e.key === '?' || (e.shiftKey && e.key === '/')) { e.preventDefault(); setShortcutsOpen(true); }
+      // Space bar: temporarily switch to pan mode while held
+      if (e.key === ' ' && !e.repeat && !spacebarPanRef.current.active) {
+        e.preventDefault();
+        spacebarPanRef.current = { active: true, prevMode: mode };
+        setMode('pan');
+      }
+    };
+    const handleKeyUp = (e) => {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      if (e.key === ' ' && spacebarPanRef.current.active) {
+        e.preventDefault();
+        const prev = spacebarPanRef.current.prevMode;
+        spacebarPanRef.current = { active: false, prevMode: 'select' };
+        setMode(prev);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
   }, [selectedId, selectedIds, mode, nodes, links, clearFailureSim, setCommandPaletteOpen, setShortcutsOpen, setFailureSim, setHeatmapMode, handleUndo, handleRedo, handleSave, handleDelete, handleDuplicateSelection, pushHistory, setNodes, setLinks, setSelectedIds, setSelectedId, setRenameModal, setMode]);
 
   const hasTopology = nodes.length > 0;

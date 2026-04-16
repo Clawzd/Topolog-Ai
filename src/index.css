@@ -93,6 +93,7 @@
 .canvas-container {
   cursor: default;
   user-select: none;
+  touch-action: none;
 }
 
 .canvas-container.mode-connect {
