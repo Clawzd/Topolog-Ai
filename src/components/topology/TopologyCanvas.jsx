@@ -168,6 +168,10 @@ export default function TopologyCanvas({
   const roomMoveHistoryPushedRef = useRef(false);
   const touchRef = useRef({ lastDist: null, lastMid: null });
   const touchHandlersRef = useRef({});
+  // Refs for touch drag/pan — written synchronously in touchStart so touchMove
+  // can read them without waiting for a React re-render (state updates are async).
+  const touchDragRef = useRef(null);  // { ids, startX, startY, origins }
+  const touchPanRef = useRef(null);   // { startPanX, startPanY, startClientX, startClientY }
   const [dragging, setDragging] = useState(null);
   const [resizingRoom, setResizingRoom] = useState(null); // {id, handle, origRoom, startX, startY}
   const [draggingRoom, setDraggingRoom] = useState(null); // {id, origX, origY, startClientX, startClientY}
@@ -621,15 +625,24 @@ export default function TopologyCanvas({
         );
         onBeforeChange && onBeforeChange();
         setSelectedId(dragIds.length === 1 ? node.id : null);
-        setDragging({ ids: dragIds, startX: t.clientX, startY: t.clientY, origins });
+        // Write to ref immediately — React setState is async so touchMove would
+        // read stale null if we relied on state here.
+        touchDragRef.current = { ids: dragIds, startX: t.clientX, startY: t.clientY, origins };
+        touchPanRef.current = null;
       } else {
         setSelectedId(null);
-        setIsPanning(true);
-        setPanStart({ x: t.clientX - pan.x, y: t.clientY - pan.y });
+        touchDragRef.current = null;
+        // Snapshot pan position at touch-down so we compute an absolute delta each move
+        touchPanRef.current = {
+          startPanX: pan.x, startPanY: pan.y,
+          startClientX: t.clientX, startClientY: t.clientY,
+        };
       }
     } else if (touches.length === 2) {
-      setIsPanning(false);
-      setDragging(null);
+      // Cancel any single-finger operation
+      touchDragRef.current = null;
+      touchPanRef.current = null;
+      setAlignmentGuides(null);
       const dx = touches[1].clientX - touches[0].clientX;
       const dy = touches[1].clientY - touches[0].clientY;
       touchRef.current = {
@@ -647,31 +660,36 @@ export default function TopologyCanvas({
     const touches = e.touches;
     if (touches.length === 1) {
       const t = touches[0];
-      if (dragging) {
-        const dx = (t.clientX - dragging.startX) / zoom;
-        const dy = (t.clientY - dragging.startY) / zoom;
-        const primaryId = dragging.ids[0];
-        const originP = dragging.origins[primaryId];
+      const drag = touchDragRef.current;
+      const panState = touchPanRef.current;
+      if (drag) {
+        const dx = (t.clientX - drag.startX) / zoom;
+        const dy = (t.clientY - drag.startY) / zoom;
+        const primaryId = drag.ids[0];
+        const originP = drag.origins[primaryId];
         if (originP) {
           const rawPx = originP.x + dx;
           const rawPy = originP.y + dy;
-          const exclude = new Set(dragging.ids);
+          const exclude = new Set(drag.ids);
           const snap = snapBoxToPeers(rawPx, rawPy, nodes, exclude, NODE_W, NODE_H);
           const sx = snap.nx - rawPx;
           const sy = snap.ny - rawPy;
           setAlignmentGuides(snap.gx != null || snap.gy != null ? { gx: snap.gx, gy: snap.gy } : null);
-          dragging.ids.forEach((id) => {
-            const origin = dragging.origins[id];
+          drag.ids.forEach((id) => {
+            const origin = drag.origins[id];
             if (origin) onNodeMove(id, origin.x + dx + sx, origin.y + dy + sy);
           });
         } else {
-          dragging.ids.forEach((id) => {
-            const origin = dragging.origins[id];
+          drag.ids.forEach((id) => {
+            const origin = drag.origins[id];
             if (origin) onNodeMove(id, origin.x + dx, origin.y + dy);
           });
         }
-      } else if (isPanning) {
-        setPan({ x: t.clientX - panStart.x, y: t.clientY - panStart.y });
+      } else if (panState) {
+        setPan({
+          x: panState.startPanX + (t.clientX - panState.startClientX),
+          y: panState.startPanY + (t.clientY - panState.startClientY),
+        });
       }
     } else if (touches.length === 2) {
       const { lastDist, lastMid } = touchRef.current;
@@ -706,17 +724,18 @@ export default function TopologyCanvas({
     e.preventDefault();
     const remaining = e.touches;
     if (remaining.length === 0) {
-      if (dragging) {
-        setDragging(null);
-        setAlignmentGuides(null);
-      }
-      setIsPanning(false);
+      setAlignmentGuides(null);
+      touchDragRef.current = null;
+      touchPanRef.current = null;
       touchRef.current = { lastDist: null, lastMid: null };
     } else if (remaining.length === 1) {
       // Lifted one finger from a two-finger gesture → resume single-finger pan
+      touchDragRef.current = null;
       const t = remaining[0];
-      setIsPanning(true);
-      setPanStart({ x: t.clientX - pan.x, y: t.clientY - pan.y });
+      touchPanRef.current = {
+        startPanX: pan.x, startPanY: pan.y,
+        startClientX: t.clientX, startClientY: t.clientY,
+      };
       touchRef.current = { lastDist: null, lastMid: null };
     }
   };
