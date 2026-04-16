@@ -166,6 +166,8 @@ export default function TopologyCanvas({
 }) {
   const svgRef = useRef(null);
   const roomMoveHistoryPushedRef = useRef(false);
+  const touchRef = useRef({ lastDist: null, lastMid: null });
+  const touchHandlersRef = useRef({});
   const [dragging, setDragging] = useState(null);
   const [resizingRoom, setResizingRoom] = useState(null); // {id, handle, origRoom, startX, startY}
   const [draggingRoom, setDraggingRoom] = useState(null); // {id, origX, origY, startClientX, startClientY}
@@ -601,6 +603,144 @@ export default function TopologyCanvas({
     svg.addEventListener('wheel', handleWheel, { passive: false });
     return () => svg.removeEventListener('wheel', handleWheel);
   }, [zoom, pan]);
+
+  // ── Mobile touch handlers ─────────────────────────────────────────────────
+
+  const handleTouchStart = (e) => {
+    e.preventDefault();
+    const touches = e.touches;
+    if (touches.length === 1) {
+      const t = touches[0];
+      const { x, y } = svgToCanvas(t.clientX, t.clientY);
+      const node = nodes.find(n => x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H);
+      if (node && mode === 'select') {
+        let dragIds = selectedIds?.includes(node.id) && selectedIds.length > 1
+          ? [...selectedIds] : [node.id];
+        const origins = Object.fromEntries(
+          nodes.filter(n => dragIds.includes(n.id)).map(n => [n.id, { x: n.x, y: n.y }])
+        );
+        onBeforeChange && onBeforeChange();
+        setSelectedId(dragIds.length === 1 ? node.id : null);
+        setDragging({ ids: dragIds, startX: t.clientX, startY: t.clientY, origins });
+      } else {
+        setSelectedId(null);
+        setIsPanning(true);
+        setPanStart({ x: t.clientX - pan.x, y: t.clientY - pan.y });
+      }
+    } else if (touches.length === 2) {
+      setIsPanning(false);
+      setDragging(null);
+      const dx = touches[1].clientX - touches[0].clientX;
+      const dy = touches[1].clientY - touches[0].clientY;
+      touchRef.current = {
+        lastDist: Math.sqrt(dx * dx + dy * dy),
+        lastMid: {
+          x: (touches[0].clientX + touches[1].clientX) / 2,
+          y: (touches[0].clientY + touches[1].clientY) / 2,
+        },
+      };
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    e.preventDefault();
+    const touches = e.touches;
+    if (touches.length === 1) {
+      const t = touches[0];
+      if (dragging) {
+        const dx = (t.clientX - dragging.startX) / zoom;
+        const dy = (t.clientY - dragging.startY) / zoom;
+        const primaryId = dragging.ids[0];
+        const originP = dragging.origins[primaryId];
+        if (originP) {
+          const rawPx = originP.x + dx;
+          const rawPy = originP.y + dy;
+          const exclude = new Set(dragging.ids);
+          const snap = snapBoxToPeers(rawPx, rawPy, nodes, exclude, NODE_W, NODE_H);
+          const sx = snap.nx - rawPx;
+          const sy = snap.ny - rawPy;
+          setAlignmentGuides(snap.gx != null || snap.gy != null ? { gx: snap.gx, gy: snap.gy } : null);
+          dragging.ids.forEach((id) => {
+            const origin = dragging.origins[id];
+            if (origin) onNodeMove(id, origin.x + dx + sx, origin.y + dy + sy);
+          });
+        } else {
+          dragging.ids.forEach((id) => {
+            const origin = dragging.origins[id];
+            if (origin) onNodeMove(id, origin.x + dx, origin.y + dy);
+          });
+        }
+      } else if (isPanning) {
+        setPan({ x: t.clientX - panStart.x, y: t.clientY - panStart.y });
+      }
+    } else if (touches.length === 2) {
+      const { lastDist, lastMid } = touchRef.current;
+      const dx = touches[1].clientX - touches[0].clientX;
+      const dy = touches[1].clientY - touches[0].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const mid = {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2,
+      };
+      if (lastDist !== null && lastMid !== null) {
+        const rect = svgRef.current.getBoundingClientRect();
+        const mx = mid.x - rect.left;
+        const my = mid.y - rect.top;
+        const pinchFactor = dist / lastDist;
+        const panDx = mid.x - lastMid.x;
+        const panDy = mid.y - lastMid.y;
+        setZoom(z => {
+          const nz = Math.min(3, Math.max(0.5, z * pinchFactor));
+          setPan(p => ({
+            x: mx - (mx - p.x) * (nz / z) + panDx,
+            y: my - (my - p.y) * (nz / z) + panDy,
+          }));
+          return nz;
+        });
+      }
+      touchRef.current = { lastDist: dist, lastMid: mid };
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    e.preventDefault();
+    const remaining = e.touches;
+    if (remaining.length === 0) {
+      if (dragging) {
+        setDragging(null);
+        setAlignmentGuides(null);
+      }
+      setIsPanning(false);
+      touchRef.current = { lastDist: null, lastMid: null };
+    } else if (remaining.length === 1) {
+      // Lifted one finger from a two-finger gesture → resume single-finger pan
+      const t = remaining[0];
+      setIsPanning(true);
+      setPanStart({ x: t.clientX - pan.x, y: t.clientY - pan.y });
+      touchRef.current = { lastDist: null, lastMid: null };
+    }
+  };
+
+  // Keep the ref current so the stable effect below always calls the latest handlers
+  touchHandlersRef.current = { handleTouchStart, handleTouchMove, handleTouchEnd };
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const ts = (e) => touchHandlersRef.current.handleTouchStart(e);
+    const tm = (e) => touchHandlersRef.current.handleTouchMove(e);
+    const te = (e) => touchHandlersRef.current.handleTouchEnd(e);
+    svg.addEventListener('touchstart', ts, { passive: false });
+    svg.addEventListener('touchmove', tm, { passive: false });
+    svg.addEventListener('touchend', te, { passive: false });
+    svg.addEventListener('touchcancel', te, { passive: false });
+    return () => {
+      svg.removeEventListener('touchstart', ts);
+      svg.removeEventListener('touchmove', tm);
+      svg.removeEventListener('touchend', te);
+      svg.removeEventListener('touchcancel', te);
+    };
+  }, []);
 
   const handleContextMenu = (e) => {
     e.preventDefault();
