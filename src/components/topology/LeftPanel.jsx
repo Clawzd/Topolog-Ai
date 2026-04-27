@@ -13,7 +13,15 @@ const DEVICE_GROUPS = {
   'Other': ['cloud', 'camera', 'iot'],
 };
 
+// Course / expo build keeps only the six devices that ICS 343 lectures cover.
+const EXPO_DEVICE_GROUPS = {
+  'Network': ['router', 'switch', 'firewall'],
+  'Wireless': ['ap'],
+  'Hosts': ['server', 'pc'],
+};
+
 export default function LeftPanel({
+  expoMode = false,
   onDeviceDragStart,
   onPatternDragStart,
   onDevicePick,
@@ -22,13 +30,14 @@ export default function LeftPanel({
   placementType,
   placementPattern,
 }) {
+  const groupSource = expoMode ? EXPO_DEVICE_GROUPS : DEVICE_GROUPS;
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState({});
   const [patternsOpen, setPatternsOpen] = useState(true);
 
   const toggleGroup = (g) => setCollapsed(c => ({ ...c, [g]: !c[g] }));
 
-  const filteredGroups = Object.entries(DEVICE_GROUPS).map(([group, types]) => ({
+  const filteredGroups = Object.entries(groupSource).map(([group, types]) => ({
     group,
     types: types.filter(t => {
       const dt = DEVICE_TYPES[t];
@@ -53,6 +62,7 @@ export default function LeftPanel({
       </div>
 
       {/* Topology patterns — multi-device segments */}
+      {!expoMode && (
       <div className="px-3 pb-2 border-b border-border/50">
         <button
           type="button"
@@ -92,6 +102,7 @@ export default function LeftPanel({
           </div>
         )}
       </div>
+      )}
 
       {/* Device palette */}
       <div className="flex-1 overflow-y-auto py-2 px-2">

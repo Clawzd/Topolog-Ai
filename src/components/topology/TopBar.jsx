@@ -107,6 +107,7 @@ function LogoMark() {
 }
 
 export default function TopBar({
+  expoMode = false,
   onSave,
   onLoad,
   onReset,
@@ -183,15 +184,19 @@ export default function TopBar({
         <DropdownMenu trigger={<><Download className="h-3.5 w-3.5" /><span className="hidden sm:inline">Export</span></>}>
           {(close) => (
             <>
-              {onOpenExportHub && (
+              {!expoMode && onOpenExportHub && (
                 <DropdownItem onClick={onOpenExportHub} icon={Download} close={close}>Export hub (7 options)</DropdownItem>
               )}
               <DropdownItem onClick={onExportJson} icon={FileJson} close={close}>Export JSON</DropdownItem>
               <DropdownItem onClick={onExportSvg} icon={FileImage} close={close}>Export SVG</DropdownItem>
-              <DropdownItem onClick={onExportBrief} icon={FileText} close={close}>Design Brief</DropdownItem>
-              <DropdownItem onClick={onExportConfig} icon={TerminalSquare} close={close}>Config Draft</DropdownItem>
-              <Divider />
-              <DropdownItem onClick={onShare} icon={Share2} close={close}>Copy Share Link</DropdownItem>
+              {!expoMode && (
+                <>
+                  <DropdownItem onClick={onExportBrief} icon={FileText} close={close}>Design Brief</DropdownItem>
+                  <DropdownItem onClick={onExportConfig} icon={TerminalSquare} close={close}>Config Draft</DropdownItem>
+                  <Divider />
+                  <DropdownItem onClick={onShare} icon={Share2} close={close}>Copy Share Link</DropdownItem>
+                </>
+              )}
             </>
           )}
         </DropdownMenu>
@@ -200,10 +205,14 @@ export default function TopBar({
         <DropdownMenu trigger={<><Settings2 className="h-3.5 w-3.5" /><span className="hidden sm:inline">Tools</span></>}>
           {(close) => (
             <>
-              <DropdownItem onClick={onTemplates} icon={LayoutTemplate} close={close}>Template Gallery</DropdownItem>
+              {!expoMode && (
+                <DropdownItem onClick={onTemplates} icon={LayoutTemplate} close={close}>Template Gallery</DropdownItem>
+              )}
               <DropdownItem onClick={onVlanManager} icon={Network} close={close}>VLAN Manager</DropdownItem>
               <DropdownItem onClick={onAutoLayout} icon={Wand2} close={close}>Auto Layout</DropdownItem>
-              <DropdownItem onClick={onValidate} icon={ShieldCheck} close={close}>Validate Network</DropdownItem>
+              {!expoMode && (
+                <DropdownItem onClick={onValidate} icon={ShieldCheck} close={close}>Validate Network</DropdownItem>
+              )}
             </>
           )}
         </DropdownMenu>
@@ -211,14 +220,18 @@ export default function TopBar({
         <div className="mx-1 hidden h-5 w-px bg-border/40 sm:block" />
 
         {/* Toggle buttons */}
-        <HeaderBtn onClick={onToggleInsights} title={insightsOpen ? 'Hide insights' : 'Show insights'} variant={insightsOpen ? 'primary' : 'default'}>
-          <BrainCircuit className="h-3.5 w-3.5" />
-          <span className="hidden lg:inline">Insights</span>
-        </HeaderBtn>
-        <HeaderBtn onClick={onToggleFocus} title={focusMode ? 'Exit focus mode' : 'Focus canvas'} variant={focusMode ? 'primary' : 'default'}>
-          <Focus className="h-3.5 w-3.5" />
-          <span className="hidden lg:inline">Focus</span>
-        </HeaderBtn>
+        {!expoMode && (
+          <HeaderBtn onClick={onToggleInsights} title={insightsOpen ? 'Hide insights' : 'Show insights'} variant={insightsOpen ? 'primary' : 'default'}>
+            <BrainCircuit className="h-3.5 w-3.5" />
+            <span className="hidden lg:inline">Insights</span>
+          </HeaderBtn>
+        )}
+        {!expoMode && (
+          <HeaderBtn onClick={onToggleFocus} title={focusMode ? 'Exit focus mode' : 'Focus canvas'} variant={focusMode ? 'primary' : 'default'}>
+            <Focus className="h-3.5 w-3.5" />
+            <span className="hidden lg:inline">Focus</span>
+          </HeaderBtn>
+        )}
         <HeaderBtn
           onClick={() => setLightMode((v) => !v)}
           title={lightMode ? 'Dark mode' : 'Light mode (v3)'}

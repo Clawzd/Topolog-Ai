@@ -41,6 +41,11 @@ import FailureImpactModal from '../components/topology/FailureImpactModal';
 
 const CANVAS_STORAGE_KEY = 'topologai_canvas';
 
+// Expo / Course build flag — set false to restore the full feature set.
+// When true, non-essential panels and advanced features are hidden so the
+// demo focuses on the AI prompt, the canvas, devices, VLAN, IP, and export.
+const EXPO_MODE = true;
+
 export default function TopologAi() {
   const nodes = useTopologyCanvasStore((s) => s.nodes);
   const links = useTopologyCanvasStore((s) => s.links);
@@ -1251,6 +1256,7 @@ export default function TopologAi() {
     <div className="flex flex-col h-screen bg-background overflow-hidden font-inter">
       {/* Top bar */}
       <TopBar
+        expoMode={EXPO_MODE}
         onSave={handleSave}
         onLoad={handleLoad}
         onReset={() => {
@@ -1263,7 +1269,7 @@ export default function TopologAi() {
         onExportSvg={handleExportSvg}
         onExportBrief={handleExportBrief}
         onExportConfig={handleExportConfig}
-        onOpenExportHub={() => setExportModalOpen(true)}
+        onOpenExportHub={EXPO_MODE ? null : () => setExportModalOpen(true)}
         onShare={handleShareLink}
         onValidate={handleValidate}
         onAutoLayout={handleAutoLayout}
@@ -1282,18 +1288,20 @@ export default function TopologAi() {
         <div className={`flex-shrink-0 border-r border-border bg-card transition-all duration-200 overflow-hidden flex flex-col ${aiPanelOpen ? 'w-64' : 'w-0'}`}>
           {aiPanelOpen && (
             <>
-              <WorkflowProgress
-                hasTopology={hasTopology}
-                nodeCount={nodes.length}
-                hasRooms={rooms.length > 0}
-                hasClassicBarriers={hasClassicBarriers}
-                hasVlanZonesOrVlans={vlanZones.length > 0 || vlans.length > 0}
-                hasLinks={links.length > 0}
-                insightsOpen={insightsOpen}
-                pathTraceActive={pathTraceActive}
-                failureActive={!!failureTarget}
-                exportReady={exportReadyHeuristic}
-              />
+              {!EXPO_MODE && (
+                <WorkflowProgress
+                  hasTopology={hasTopology}
+                  nodeCount={nodes.length}
+                  hasRooms={rooms.length > 0}
+                  hasClassicBarriers={hasClassicBarriers}
+                  hasVlanZonesOrVlans={vlanZones.length > 0 || vlans.length > 0}
+                  hasLinks={links.length > 0}
+                  insightsOpen={insightsOpen}
+                  pathTraceActive={pathTraceActive}
+                  failureActive={!!failureTarget}
+                  exportReady={exportReadyHeuristic}
+                />
+              )}
               <AIPanel
                 ref={aiSubmitRef}
                 onTopologyGenerated={handleTopologyGenerated}
@@ -1325,6 +1333,7 @@ export default function TopologAi() {
           <div className="flex h-full min-h-0 w-[18rem] shrink-0 flex-col border-r border-border bg-card/80 sm:w-80">
             <div className="flex min-h-0 flex-[3] flex-col overflow-hidden basis-0">
               <LeftPanel
+                expoMode={EXPO_MODE}
                 onDeviceDragStart={handleDeviceDragStart}
                 onPatternDragStart={handlePatternDragStart}
                 onDevicePick={handleDevicePick}
@@ -1334,9 +1343,11 @@ export default function TopologAi() {
                 placementPattern={placementPattern}
               />
             </div>
-            <div className="flex min-h-0 max-h-[min(28vh,248px)] shrink-0 flex-col overflow-hidden border-t border-border/80">
-              <EnvironmentToolbox mode={mode} setMode={setMode} />
-            </div>
+            {!EXPO_MODE && (
+              <div className="flex min-h-0 max-h-[min(28vh,248px)] shrink-0 flex-col overflow-hidden border-t border-border/80">
+                <EnvironmentToolbox mode={mode} setMode={setMode} />
+              </div>
+            )}
           </div>
         )}
 
@@ -1353,6 +1364,7 @@ export default function TopologAi() {
           {/* Floating Toolbar */}
           <div className="absolute top-3 left-3 z-10">
             <Toolbar
+              expoMode={EXPO_MODE}
               mode={mode} setMode={setMode}
               zoom={zoom} setZoom={setZoom} setPan={setPan}
               onDelete={handleDelete}
@@ -1373,13 +1385,13 @@ export default function TopologAi() {
               failureActive={!!failureTarget}
               onClearFailure={clearFailureSim}
               findingCount={smartSnapshot?.findings?.length || 0}
-              onExport={() => setExportModalOpen(true)}
-              onSimulateUptime={handleSimulateUptime}
-              onSimulateDeviceStatus={handleSimulateDeviceStatus}
+              onExport={EXPO_MODE ? handleExportJson : () => setExportModalOpen(true)}
+              onSimulateUptime={EXPO_MODE ? null : handleSimulateUptime}
+              onSimulateDeviceStatus={EXPO_MODE ? null : handleSimulateDeviceStatus}
               gridSnap={gridSnap}
               setGridSnap={setGridSnap}
-              onOpenInsights={() => { setInsightsOpen(true); }}
-              onCollapseSidebars={() => {
+              onOpenInsights={EXPO_MODE ? null : () => { setInsightsOpen(true); }}
+              onCollapseSidebars={EXPO_MODE ? null : () => {
                 setFocusMode(true);
                 setAiPanelOpen(false);
                 setPropsPanelOpen(false);
@@ -1439,14 +1451,14 @@ export default function TopologAi() {
 
           {!hasTopology && (
             <EmptyState
-              onTemplates={() => setShowTemplates(true)}
+              onTemplates={EXPO_MODE ? null : () => setShowTemplates(true)}
               onQuickStart={handleQuickStart}
               onDescribe={() => aiSubmitRef.current?.focusPrompt?.()}
             />
           )}
 
           {/* Minimap */}
-          {hasTopology && (
+          {!EXPO_MODE && hasTopology && (
             <MiniMap
               nodes={nodes} links={links} rooms={rooms} barriers={barriers} powerZones={powerZones}
               zoom={zoom} pan={pan} setPan={setPan}
@@ -1454,7 +1466,7 @@ export default function TopologAi() {
             />
           )}
 
-          {hasTopology && insightsOpen && !focusMode && (
+          {!EXPO_MODE && hasTopology && insightsOpen && !focusMode && (
             <NetworkInsightsPanel
               nodes={nodes}
               links={links}
@@ -1550,13 +1562,22 @@ export default function TopologAi() {
       </div>
 
       {/* Stats bar */}
-      <StatsPanel
-        nodes={nodes} links={links} vlans={vlans} rooms={rooms} barriers={barriers}
-        highlightVlan={highlightVlan}
-        setHighlightVlan={setHighlightVlan}
-        smartSnapshot={smartSnapshot}
-        zoom={zoom}
-      />
+      {EXPO_MODE ? (
+        <div className="flex-shrink-0 flex items-center justify-between gap-4 px-4 py-1.5 text-[11px] text-muted-foreground border-t border-border/60 bg-card/80">
+          <span className="font-medium">
+            {nodes.length} device{nodes.length === 1 ? '' : 's'} · {links.length} link{links.length === 1 ? '' : 's'} · {vlans.length} VLAN{vlans.length === 1 ? '' : 's'}
+          </span>
+          <span className="font-mono tabular-nums">{Math.round(zoom * 100)}%</span>
+        </div>
+      ) : (
+        <StatsPanel
+          nodes={nodes} links={links} vlans={vlans} rooms={rooms} barriers={barriers}
+          highlightVlan={highlightVlan}
+          setHighlightVlan={setHighlightVlan}
+          smartSnapshot={smartSnapshot}
+          zoom={zoom}
+        />
+      )}
 
       {/* Rename modal */}
       {renameModal && (
@@ -1604,57 +1625,67 @@ export default function TopologAi() {
       {showVlanManager && (
         <VlanManager vlans={vlans} setVlans={setVlans} onClose={() => setShowVlanManager(false)} />
       )}
-      {showTemplates && (
+      {!EXPO_MODE && showTemplates && (
         <TemplateGallery onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} />
       )}
 
-      <ExportMenuModal
-        open={exportModalOpen}
-        onClose={() => setExportModalOpen(false)}
-        onExportPng={handleExportPngDemo}
-        onExportSvg={() => { handleExportSvg(); setExportModalOpen(false); }}
-        onExportJson={() => { handleExportJson(); setExportModalOpen(false); }}
-        onCopyJson={handleCopyJsonExport}
-        onExportPdf={handleExportPdfDemo}
-        onExportPkt={handleExportPktDemo}
-        onExportScript={() => { handleExportConfig(); setExportModalOpen(false); }}
-        onExportBrief={() => { handleExportBrief(); setExportModalOpen(false); }}
-      />
-      <FailureImpactModal
-        open={failureModalOpen && !!failureTarget}
-        onClose={() => setFailureModalOpen(false)}
-        affectedCount={failureModalStats.affected}
-        apOfflineCount={failureModalStats.apOff}
-        scoreBefore={failureModalStats.before}
-        scoreAfter={failureModalStats.after}
-      />
+      {!EXPO_MODE && (
+        <ExportMenuModal
+          open={exportModalOpen}
+          onClose={() => setExportModalOpen(false)}
+          onExportPng={handleExportPngDemo}
+          onExportSvg={() => { handleExportSvg(); setExportModalOpen(false); }}
+          onExportJson={() => { handleExportJson(); setExportModalOpen(false); }}
+          onCopyJson={handleCopyJsonExport}
+          onExportPdf={handleExportPdfDemo}
+          onExportPkt={handleExportPktDemo}
+          onExportScript={() => { handleExportConfig(); setExportModalOpen(false); }}
+          onExportBrief={() => { handleExportBrief(); setExportModalOpen(false); }}
+        />
+      )}
+      {!EXPO_MODE && (
+        <FailureImpactModal
+          open={failureModalOpen && !!failureTarget}
+          onClose={() => setFailureModalOpen(false)}
+          affectedCount={failureModalStats.affected}
+          apOfflineCount={failureModalStats.apOff}
+          scoreBefore={failureModalStats.before}
+          scoreAfter={failureModalStats.after}
+        />
+      )}
 
-      <CommandPalette
-        open={commandPaletteOpen}
-        onClose={() => setCommandPaletteOpen(false)}
-        onTemplates={() => setShowTemplates(true)}
-        onVlanManager={() => setShowVlanManager(true)}
-        onAutoLayout={handleAutoLayout}
-        onToggleHeatmap={() => setHeatmapMode(m => (m === 'signal' ? null : 'signal'))}
-        onToggleTraffic={() => setShowTrafficFlow(v => !v)}
-        onToggleCompliance={() => setShowComplianceView(v => !v)}
-        onTogglePower={() => setShowPowerView(v => !v)}
-        onToggleApAdvisor={() => setShowApAdvisor(v => !v)}
-        onExportBrief={handleExportBrief}
-        onSave={handleSave}
-        extraItems={commandPaletteExtras}
-      />
-      <KeyboardShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
-      <OnboardingTour
-        step={onboardingStep}
-        onStep={setOnboardingStep}
-        onDismiss={() => {
-          try {
-            localStorage.setItem('topologai_tour_done', '1');
-          } catch { /* ignore */ }
-          setOnboardingStep(null);
-        }}
-      />
+      {!EXPO_MODE && (
+        <CommandPalette
+          open={commandPaletteOpen}
+          onClose={() => setCommandPaletteOpen(false)}
+          onTemplates={() => setShowTemplates(true)}
+          onVlanManager={() => setShowVlanManager(true)}
+          onAutoLayout={handleAutoLayout}
+          onToggleHeatmap={() => setHeatmapMode(m => (m === 'signal' ? null : 'signal'))}
+          onToggleTraffic={() => setShowTrafficFlow(v => !v)}
+          onToggleCompliance={() => setShowComplianceView(v => !v)}
+          onTogglePower={() => setShowPowerView(v => !v)}
+          onToggleApAdvisor={() => setShowApAdvisor(v => !v)}
+          onExportBrief={handleExportBrief}
+          onSave={handleSave}
+          extraItems={commandPaletteExtras}
+        />
+      )}
+      {!EXPO_MODE && (
+        <KeyboardShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      )}
+      {!EXPO_MODE && (
+        <OnboardingTour
+          step={onboardingStep}
+          onStep={setOnboardingStep}
+          onDismiss={() => {
+            try {
+              localStorage.setItem('topologai_tour_done', '1');
+            } catch { /* ignore */ }
+            setOnboardingStep(null);
+          }}
+        />
+      )}
     </div>
   );
 }

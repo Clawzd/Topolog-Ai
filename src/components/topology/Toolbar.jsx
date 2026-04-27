@@ -38,6 +38,15 @@ const MODES = [
   { id: 'vlanzone', icon: LayoutGrid, label: 'VLAN zone overlay', key: 'Z' },
 ];
 
+// Course / expo build keeps only the four modes that map directly to course
+// concepts (select, connect, pan, VLAN zone overlay).
+const EXPO_MODES = [
+  { id: 'select', icon: MousePointer2, label: 'Select / Move', key: 'V' },
+  { id: 'connect', icon: Link2, label: 'Draw Connection', key: 'C' },
+  { id: 'pan', icon: Move, label: 'Pan Canvas', key: 'H' },
+  { id: 'vlanzone', icon: LayoutGrid, label: 'VLAN zone overlay', key: 'Z' },
+];
+
 function ToolBtn({ onClick, title, shortcut = '', children, active = false, danger = false, disabled = false }) {
   return (
     <button
@@ -65,6 +74,7 @@ function ToolBtn({ onClick, title, shortcut = '', children, active = false, dang
 const Divider = () => <div className="w-px h-5 bg-border mx-0.5" />;
 
 export default function Toolbar({
+  expoMode = false,
   mode,
   setMode,
   zoom,
@@ -96,6 +106,7 @@ export default function Toolbar({
   onOpenInsights,
   onCollapseSidebars,
 }) {
+  const activeModes = expoMode ? EXPO_MODES : MODES;
   const resetView = () => {
     setZoom(1);
     setPan({ x: 60, y: 60 });
@@ -104,7 +115,7 @@ export default function Toolbar({
   return (
     <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 bg-card/95 backdrop-blur-md border border-border/80 rounded-lg shadow-2xl shadow-black/40 max-w-[calc(100vw-2rem)]">
       <div className="flex items-center gap-0.5 bg-muted/50 rounded-lg p-0.5 mr-1">
-        {MODES.map(({ id, icon: Icon, label, key }) => (
+        {activeModes.map(({ id, icon: Icon, label, key }) => (
           <ToolBtn key={id} onClick={() => setMode(id)} title={label} shortcut={key} active={mode === id}>
             <Icon className="w-3.5 h-3.5" />
           </ToolBtn>
@@ -153,73 +164,79 @@ export default function Toolbar({
         </ToolBtn>
       )}
 
-      <Divider />
+      {!expoMode && (
+        <>
+          <Divider />
 
-      <ToolBtn
-        onClick={() => setHeatmapMode(heatmapMode === 'signal' ? null : 'signal')}
-        title="Signal heatmap"
-        shortcut="Ctrl+H"
-        active={heatmapMode === 'signal'}
-      >
-        <Radio className="w-3.5 h-3.5" />
-      </ToolBtn>
-      <ToolBtn
-        onClick={() => setHeatmapMode(heatmapMode === 'bandwidth' ? null : 'bandwidth')}
-        title="Bandwidth heatmap"
-        active={heatmapMode === 'bandwidth'}
-      >
-        <Activity className="w-3.5 h-3.5" />
-      </ToolBtn>
-      <ToolBtn onClick={() => setShowTrafficFlow(!showTrafficFlow)} title="Traffic flow + packet dots" active={showTrafficFlow}>
-        <Activity className="w-3.5 h-3.5 opacity-80" />
-      </ToolBtn>
-      {onSimulateUptime && (
-        <ToolBtn onClick={onSimulateUptime} title="Uptime counter (demo — inspector)">
-          <Clock3 className="w-3.5 h-3.5" />
-        </ToolBtn>
-      )}
-      {onSimulateDeviceStatus && (
-        <ToolBtn onClick={onSimulateDeviceStatus} title="Simulate status — random Online/Idle/Warning/Offline dots (v3 §D)">
-          <Play className="w-3.5 h-3.5" />
-        </ToolBtn>
-      )}
-      <ToolBtn onClick={() => setShowComplianceView(!showComplianceView)} title="Compliance view" active={showComplianceView}>
-        <Shield className="w-3.5 h-3.5" />
-      </ToolBtn>
-      <ToolBtn onClick={() => setShowPowerView(!showPowerView)} title="Power view" active={showPowerView}>
-        <Zap className="w-3.5 h-3.5" />
-      </ToolBtn>
-      <ToolBtn onClick={() => setShowApAdvisor(!showApAdvisor)} title="AP placement advisor" active={showApAdvisor}>
-        <MapPin className="w-3.5 h-3.5" />
-      </ToolBtn>
-
-      <Divider />
-
-      {failureActive ? (
-        <ToolBtn onClick={onClearFailure} title="End failure simulation" active danger>
-          <X className="w-3.5 h-3.5" />
-        </ToolBtn>
-      ) : (
-        <ToolBtn onClick={() => {}} title="Simulate failure (select device, press F)" disabled>
-          <Zap className="w-3.5 h-3.5 opacity-40" />
-        </ToolBtn>
-      )}
-
-      {onOpenInsights && (
-        <div className="relative">
-          <ToolBtn onClick={onOpenInsights} title="Findings — open Network Intelligence">
-            <Bell className="w-3.5 h-3.5" />
+          <ToolBtn
+            onClick={() => setHeatmapMode(heatmapMode === 'signal' ? null : 'signal')}
+            title="Signal heatmap"
+            shortcut="Ctrl+H"
+            active={heatmapMode === 'signal'}
+          >
+            <Radio className="w-3.5 h-3.5" />
           </ToolBtn>
-          {findingCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-destructive text-[8px] font-bold text-white flex items-center justify-center">
-              {findingCount > 9 ? '9+' : findingCount}
-            </span>
+          <ToolBtn
+            onClick={() => setHeatmapMode(heatmapMode === 'bandwidth' ? null : 'bandwidth')}
+            title="Bandwidth heatmap"
+            active={heatmapMode === 'bandwidth'}
+          >
+            <Activity className="w-3.5 h-3.5" />
+          </ToolBtn>
+          <ToolBtn onClick={() => setShowTrafficFlow(!showTrafficFlow)} title="Traffic flow + packet dots" active={showTrafficFlow}>
+            <Activity className="w-3.5 h-3.5 opacity-80" />
+          </ToolBtn>
+          {onSimulateUptime && (
+            <ToolBtn onClick={onSimulateUptime} title="Uptime counter (demo — inspector)">
+              <Clock3 className="w-3.5 h-3.5" />
+            </ToolBtn>
           )}
-        </div>
+          {onSimulateDeviceStatus && (
+            <ToolBtn onClick={onSimulateDeviceStatus} title="Simulate status — random Online/Idle/Warning/Offline dots (v3 §D)">
+              <Play className="w-3.5 h-3.5" />
+            </ToolBtn>
+          )}
+          <ToolBtn onClick={() => setShowComplianceView(!showComplianceView)} title="Compliance view" active={showComplianceView}>
+            <Shield className="w-3.5 h-3.5" />
+          </ToolBtn>
+          <ToolBtn onClick={() => setShowPowerView(!showPowerView)} title="Power view" active={showPowerView}>
+            <Zap className="w-3.5 h-3.5" />
+          </ToolBtn>
+          <ToolBtn onClick={() => setShowApAdvisor(!showApAdvisor)} title="AP placement advisor" active={showApAdvisor}>
+            <MapPin className="w-3.5 h-3.5" />
+          </ToolBtn>
+
+          <Divider />
+
+          {failureActive ? (
+            <ToolBtn onClick={onClearFailure} title="End failure simulation" active danger>
+              <X className="w-3.5 h-3.5" />
+            </ToolBtn>
+          ) : (
+            <ToolBtn onClick={() => {}} title="Simulate failure (select device, press F)" disabled>
+              <Zap className="w-3.5 h-3.5 opacity-40" />
+            </ToolBtn>
+          )}
+
+          {onOpenInsights && (
+            <div className="relative">
+              <ToolBtn onClick={onOpenInsights} title="Findings — open Network Intelligence">
+                <Bell className="w-3.5 h-3.5" />
+              </ToolBtn>
+              {findingCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-destructive text-[8px] font-bold text-white flex items-center justify-center">
+                  {findingCount > 9 ? '9+' : findingCount}
+                </span>
+              )}
+            </div>
+          )}
+        </>
       )}
+
+      <Divider />
 
       <div className="relative">
-        <ToolBtn onClick={onExport} title="Export hub (7 options)">
+        <ToolBtn onClick={onExport} title={expoMode ? 'Export topology JSON' : 'Export hub (7 options)'}>
           <Download className="w-3.5 h-3.5" />
         </ToolBtn>
       </div>
