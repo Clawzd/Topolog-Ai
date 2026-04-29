@@ -43,22 +43,210 @@ function getScenarioNote(prompt) {
     || 'Optimized for an editable office-grade topology.';
 }
 
+function getTopologyBounds(topology) {
+  const xs = [];
+  const ys = [];
+
+  for (const node of topology.nodes || []) {
+    xs.push(node.x, node.x + 90);
+    ys.push(node.y, node.y + 56);
+  }
+
+  for (const room of topology.rooms || []) {
+    xs.push(room.x, room.x + room.w);
+    ys.push(room.y, room.y + room.h);
+  }
+
+  if (!xs.length || !ys.length) {
+    return { minX: 80, maxX: 920, minY: 80, maxY: 620 };
+  }
+
+  return {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs),
+    minY: Math.min(...ys),
+    maxY: Math.max(...ys),
+  };
+}
+
+function inferBarrierMaterial(prompt) {
+  const lower = prompt.toLowerCase();
+  if (/\brf shield\b|\bfaraday\b/.test(lower)) return 'rf_shield';
+  if (/\bmetal\b|\bsteel\b/.test(lower)) return 'metal';
+  if (/\bconcrete\b/.test(lower)) return 'concrete';
+  if (/\bbrick\b/.test(lower)) return 'brick';
+  if (/\bglass\b/.test(lower)) return 'glass';
+  if (/\bwood\b|\bwooden\b/.test(lower)) return 'wood';
+  if (/\bwater\b/.test(lower)) return 'water';
+  return 'drywall';
+}
+
+function inferBarrierThickness(prompt) {
+  const lower = prompt.toLowerCase();
+  if (/\bthick\b|\breinforced\b|\bheavy\b/.test(lower)) return 'thick';
+  if (/\bthin\b|\blight\b|\bsliding\b/.test(lower)) return 'thin';
+  return 'medium';
+}
+
+function makeLineBarrier(kind, label, x1, y1, x2, y2, overrides = {}) {
+  return {
+    id: generateId('b'),
+    shape: 'line',
+    x1,
+    y1,
+    x2,
+    y2,
+    barrierType: overrides.barrierType || 'drywall',
+    thickness: overrides.thickness || 'medium',
+    blocksWifi: overrides.blocksWifi ?? true,
+    blocksCablePath: overrides.blocksCablePath ?? false,
+    environmentKind: kind,
+    label,
+    ...(overrides.attenuationDb != null ? { attenuationDb: overrides.attenuationDb } : {}),
+  };
+}
+
+function appendEnvironmentBarriers(topology, prompt) {
+  const lower = String(prompt || '').toLowerCase();
+  const wantsWalls = /\bwall\b|\bwalls\b|\bbarrier\b|\bbarriers\b|\bpartition\b/.test(lower);
+  const wantsDoor = /\bdoor\b|\bdoors\b|\bopening\b|\bentry\b|\bentrance\b/.test(lower);
+  const wantsWindow = /\bwindow\b|\bwindows\b|\bglass partition\b|\bglass wall\b/.test(lower);
+  const wantsNoise = /\bnoise\b|\binterference\b|\brf noise\b|\belectrical noise\b|\bmicrowave\b/.test(lower);
+  const wantsConduit = /\bconduit\b|\braceway\b|\bcable tray\b|\btray\b|\bduct\b/.test(lower);
+  const wantsObstacle = /\bobstacle\b|\bfurniture\b|\bshelf\b|\bshelves\b|\bcabinet\b/.test(lower);
+
+  if (!wantsWalls && !wantsDoor && !wantsWindow && !wantsNoise && !wantsConduit && !wantsObstacle) {
+    return topology;
+  }
+
+  const barriers = [...(topology.barriers || [])];
+  const existingKinds = new Set(barriers.map((barrier) => barrier.environmentKind));
+  const { minX, maxX, minY, maxY } = getTopologyBounds(topology);
+  const centerX = Math.round((minX + maxX) / 2);
+  const centerY = Math.round((minY + maxY) / 2);
+  const top = Math.round(minY - 24);
+  const bottom = Math.round(maxY + 24);
+  const left = Math.round(minX - 24);
+  const right = Math.round(maxX + 24);
+  const material = inferBarrierMaterial(prompt);
+  const thickness = inferBarrierThickness(prompt);
+  const addedLabels = [];
+
+  if (wantsWalls && !existingKinds.has('wall')) {
+    barriers.push(
+      makeLineBarrier('wall', 'Primary wall', centerX, top, centerX, bottom, {
+        barrierType: material === 'rf_shield' ? 'metal' : material,
+        thickness,
+        blocksWifi: true,
+        blocksCablePath: true,
+      }),
+    );
+    addedLabels.push('wall');
+
+    if ((/\bwalls\b|\bpartitions\b|\bmultiple walls\b/.test(lower) || (topology.rooms || []).length > 1) && Math.abs(right - left) > 240) {
+      barriers.push(
+        makeLineBarrier('wall', 'Partition wall', left + 40, centerY, right - 40, centerY, {
+          barrierType: material === 'rf_shield' ? 'metal' : material,
+          thickness,
+          blocksWifi: true,
+          blocksCablePath: true,
+        }),
+      );
+      addedLabels.push('partition');
+    }
+  }
+
+  if (wantsDoor && !existingKinds.has('door')) {
+    barriers.push(
+      makeLineBarrier('door', 'Door / opening', centerX, centerY + 40, centerX, centerY + 120, {
+        barrierType: 'drywall',
+        thickness: 'thin',
+        blocksWifi: true,
+        blocksCablePath: false,
+        attenuationDb: 2,
+      }),
+    );
+    addedLabels.push('door');
+  }
+
+  if (wantsWindow && !existingKinds.has('window')) {
+    barriers.push(
+      makeLineBarrier('window', 'Window / glass', centerX, centerY - 140, centerX, centerY - 70, {
+        barrierType: 'glass',
+        thickness: 'medium',
+        blocksWifi: true,
+        blocksCablePath: false,
+      }),
+    );
+    addedLabels.push('window');
+  }
+
+  if (wantsConduit && !existingKinds.has('conduit')) {
+    barriers.push(
+      makeLineBarrier('conduit', 'Cable conduit', left + 30, top - 28, right - 30, top - 28, {
+        barrierType: 'metal',
+        thickness: 'thin',
+        blocksWifi: false,
+        blocksCablePath: false,
+      }),
+    );
+    addedLabels.push('conduit');
+  }
+
+  if (wantsNoise && !existingKinds.has('noise')) {
+    barriers.push(
+      makeLineBarrier('noise', 'Noise source', right - 120, centerY - 20, right - 30, centerY - 20, {
+        barrierType: 'drywall',
+        thickness: 'medium',
+        blocksWifi: true,
+        blocksCablePath: false,
+        attenuationDb: 4,
+      }),
+    );
+    addedLabels.push('noise source');
+  }
+
+  if (wantsObstacle && !existingKinds.has('obstacle')) {
+    barriers.push(
+      makeLineBarrier('obstacle', 'Obstacle', left + 70, bottom - 120, left + 70, bottom - 20, {
+        barrierType: 'wood',
+        thickness: 'medium',
+        blocksWifi: true,
+        blocksCablePath: true,
+      }),
+    );
+    addedLabels.push('obstacle');
+  }
+
+  if (!addedLabels.length) return topology;
+
+  return {
+    ...topology,
+    barriers,
+    summary: `${topology.summary} Environment elements added: ${addedLabels.join(', ')}.`,
+  };
+}
+
+function finalizePromptTopology(topology, hint) {
+  return appendEnvironmentBarriers(topology, hint);
+}
+
 export function generatePromptTopology(userPrompt) {
   const hint = (userPrompt || 'office network').trim().slice(0, 200);
   const lower = hint.toLowerCase();
 
   // Check for specialized scenarios first
   if (['warehouse', 'iot', 'sensor', 'industrial', 'factory'].some(w => lower.includes(w))) {
-    return smartWarehouseTopology(hint);
+    return finalizePromptTopology(smartWarehouseTopology(hint), hint);
   }
   if (['zero trust', 'branch', 'sd-wan', 'sdwan'].some(w => lower.includes(w))) {
-    return zeroTrustBranchTopology(hint);
+    return finalizePromptTopology(zeroTrustBranchTopology(hint), hint);
   }
   if (['hospital', 'clinic', 'medical', 'health'].some(w => lower.includes(w))) {
-    return hospitalTopology(hint);
+    return finalizePromptTopology(hospitalTopology(hint), hint);
   }
   if (['hotel', 'resort', 'hospitality'].some(w => lower.includes(w))) {
-    return hotelTopology(hint);
+    return finalizePromptTopology(hotelTopology(hint), hint);
   }
 
   // Check for explicit topology pattern keywords
@@ -67,14 +255,14 @@ export function generatePromptTopology(userPrompt) {
     const genId = { node: () => generateId('n'), link: () => generateId('l') };
     const { nodes, links, barriers } = instantiateTopologyPattern(pid, 400, 300, genId);
     const meta = TOPOLOGY_PATTERNS.find((p) => p.id === pid);
-    return {
+    return finalizePromptTopology({
       nodes,
       links,
       rooms: [],
       vlans: [],
       barriers: barriers || [],
       summary: `${meta?.label || pid} topology for "${hint}". ${getScenarioNote(hint)}`,
-    };
+    }, hint);
   }
 
   // Use smart recommendation based on prompt
@@ -83,10 +271,10 @@ export function generatePromptTopology(userPrompt) {
   // Use enriched mock responses (they already have rooms, VLANs, etc.)
   const topology = MOCK_AI_RESPONSES.default(hint);
 
-  return {
+  return finalizePromptTopology({
     ...topology,
     summary: `${topology.summary} Using ${rec.topology} topology pattern: ${rec.reason}`,
-  };
+  }, hint);
 }
 
 function smartWarehouseTopology(hint) {

@@ -5,7 +5,9 @@ import {
   getTopologyAiProviderLabel,
   getTopologyAiConnectionStatus,
 } from '@/lib/topologyAiProvider';
-import { generateId } from '../../lib/topologyData';
+import { DEVICE_TYPES, generateId } from '../../lib/topologyData';
+import { patternIdFromPrompt } from '../../lib/topologyPatterns';
+import { recommendTopology } from '../../lib/smartLayout';
 
 const EXAMPLE_PROMPTS = [
   'Small office with 15 employees, 2 departments, WiFi coverage throughout',
@@ -16,6 +18,113 @@ const EXAMPLE_PROMPTS = [
   'Warehouse with IoT sensors, cameras, and a protected operations VLAN',
   'Data center edge with redundant routers, firewalls, and storage tier',
 ];
+
+const TOPOLOGY_LABELS = {
+  star: 'Star',
+  bus: 'Bus',
+  ring: 'Ring',
+  mesh: 'Mesh',
+  tree: 'Tree',
+  hybrid: 'Hybrid',
+};
+
+const TOPOLOGY_REASONS = {
+  star: 'The design centers devices around one main hub, which keeps a small network simple and easy to manage.',
+  bus: 'The design uses one shared backbone cable with devices tapping directly into it, which matches a classic bus layout.',
+  ring: 'The design forms a closed loop so traffic can follow a circular path between backbone devices.',
+  mesh: 'The design emphasizes redundant interconnections between core devices for resilience and failover.',
+  tree: 'The design follows a layered hierarchy from core to access to endpoints, which fits most structured building networks.',
+  hybrid: 'The design mixes backbone and star-style segments to serve different zones with a shared core.',
+};
+
+function getNodeCenter(node) {
+  return { x: node.x + 45, y: node.y + 28 };
+}
+
+function roomContainsNode(room, node) {
+  const { x, y } = getNodeCenter(node);
+  return x >= room.x && x <= room.x + room.w && y >= room.y && y <= room.y + room.h;
+}
+
+function inferTopologyType(topology, prompt) {
+  const summary = String(topology?.summary || '').toLowerCase();
+  for (const id of ['hybrid', 'mesh', 'ring', 'tree', 'star', 'bus']) {
+    if (summary.includes(id)) return id;
+  }
+
+  const barriers = Array.isArray(topology?.barriers) ? topology.barriers : [];
+  const links = Array.isArray(topology?.links) ? topology.links : [];
+  const nodes = Array.isArray(topology?.nodes) ? topology.nodes.filter((n) => !n.isBusAnchor) : [];
+
+  if (barriers.some((b) => b.environmentKind === 'bus')) {
+    const busLinkCount = links.filter((l) => l.busId).length;
+    const nonBusLinkCount = links.filter((l) => !l.busId).length;
+    return nonBusLinkCount > Math.max(3, Math.floor(busLinkCount / 2)) ? 'hybrid' : 'bus';
+  }
+
+  const explicit = patternIdFromPrompt(prompt);
+  if (explicit) return explicit;
+
+  if (nodes.length > 0) {
+    const wiredLinks = links.filter((l) => l.type !== 'wifi');
+    const degree = new Map(nodes.map((n) => [n.id, 0]));
+    wiredLinks.forEach((l) => {
+      if (degree.has(l.source)) degree.set(l.source, degree.get(l.source) + 1);
+      if (degree.has(l.target)) degree.set(l.target, degree.get(l.target) + 1);
+    });
+    const maxDegree = Math.max(...degree.values(), 0);
+    if (maxDegree >= Math.max(3, nodes.length - 2)) return 'star';
+  }
+
+  return recommendTopology(prompt).topology;
+}
+
+function describeRoomDevices(nodesInRoom) {
+  if (!nodesInRoom.length) return 'No devices placed here.';
+
+  const counts = new Map();
+  nodesInRoom.forEach((node) => {
+    const label = DEVICE_TYPES[node.type]?.label || node.type;
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+
+  const topTypes = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([label, count]) => `${count} ${label}${count === 1 ? '' : 's'}`);
+
+  return `${nodesInRoom.length} device${nodesInRoom.length === 1 ? '' : 's'}: ${topTypes.join(', ')}.`;
+}
+
+function buildGenerationInsight(topology, prompt, isRefinement) {
+  const nodes = (topology?.nodes || []).filter((n) => !n.isBusAnchor);
+  const links = topology?.links || [];
+  const rooms = topology?.rooms || [];
+  const vlans = topology?.vlans || [];
+  const topologyType = inferTopologyType(topology, prompt);
+  const topologyLabel = TOPOLOGY_LABELS[topologyType] || 'Structured';
+  const roomSummaries = rooms.map((room) => {
+    const roomNodes = nodes.filter((node) => roomContainsNode(room, node));
+    return {
+      id: room.id,
+      label: room.label,
+      detail: describeRoomDevices(roomNodes),
+    };
+  });
+
+  const what = isRefinement
+    ? `Refined the current design into ${nodes.length} devices, ${links.length} links, ${rooms.length} room${rooms.length === 1 ? '' : 's'}, and ${vlans.length} VLAN${vlans.length === 1 ? '' : 's'}.`
+    : `Built a topology with ${nodes.length} devices, ${links.length} links, ${rooms.length} room${rooms.length === 1 ? '' : 's'}, and ${vlans.length} VLAN${vlans.length === 1 ? '' : 's'}.`;
+
+  return {
+    topologyType,
+    topologyLabel,
+    what,
+    why: TOPOLOGY_REASONS[topologyType] || recommendTopology(prompt).reason,
+    rooms: roomSummaries,
+    summary: topology?.summary || 'Generated network topology.',
+  };
+}
 
 /**
  * @typedef {object} AIPanelProps
@@ -35,6 +144,7 @@ const AIPanel = forwardRef(
   const [exampleRotate, setExampleRotate] = useState(0);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
+  const [latestInsight, setLatestInsight] = useState(null);
   const [showExamples, setShowExamples] = useState(false);
   const [error, setError] = useState('');
   const providerLabel = getTopologyAiProviderLabel();
@@ -103,13 +213,16 @@ const AIPanel = forwardRef(
         vlans: topology.vlans.map((v) => ({ ...v, id: generateId('vlan') })),
         barriers: newBarriers,
       };
+      const insight = buildGenerationInsight(fixedTopology, cleanText, isRefinement);
       const entry = {
         id: Date.now(),
         prompt: cleanText,
         summary: fixedTopology.summary,
+        topologyType: insight.topologyLabel,
         isRefinement,
         timestamp: new Date().toLocaleTimeString(),
       };
+      setLatestInsight(insight);
       setHistory(h => [entry, ...h.slice(0, 9)]);
       if (isRefinement) {
         onRefinement(fixedTopology, cleanText);
@@ -238,6 +351,47 @@ const AIPanel = forwardRef(
         </form>
       </div>
 
+      {latestInsight && (
+        <div className="p-3 border-b border-border bg-muted/25">
+          <div className="rounded-xl border border-border/70 bg-card/90 p-3 shadow-sm">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div>
+                <p className="text-[9px] uppercase tracking-[0.22em] text-muted-foreground">Last AI Design</p>
+                <h3 className="text-sm font-semibold text-foreground mt-1">{latestInsight.topologyLabel} topology</h3>
+              </div>
+              <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary">
+                {latestInsight.topologyType}
+              </span>
+            </div>
+
+            <p className="text-[11px] leading-relaxed text-foreground/90">{latestInsight.what}</p>
+            <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">{latestInsight.summary}</p>
+
+            <div className="mt-3 space-y-2">
+              <div>
+                <p className="text-[10px] font-medium text-foreground">Why this topology</p>
+                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">{latestInsight.why}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-medium text-foreground">Rooms and zones</p>
+                {latestInsight.rooms.length > 0 ? (
+                  <div className="mt-1.5 space-y-1.5">
+                    {latestInsight.rooms.slice(0, 4).map((room) => (
+                      <div key={room.id} className="rounded-lg bg-muted/55 px-2.5 py-2">
+                        <p className="text-[10px] font-medium text-foreground">{room.label}</p>
+                        <p className="mt-0.5 text-[9px] leading-relaxed text-muted-foreground">{room.detail}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-[10px] text-muted-foreground">No rooms were added in this generation.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Examples */}
       <div className="border-b border-border">
         <button
@@ -271,9 +425,14 @@ const AIPanel = forwardRef(
               <div key={h.id} className="bg-muted rounded-lg p-2.5 border border-border/50">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[9px] text-muted-foreground">{h.timestamp}</span>
-                  {h.isRefinement && (
-                    <span className="text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">Refinement</span>
-                  )}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">
+                      {h.topologyType}
+                    </span>
+                    {h.isRefinement && (
+                      <span className="text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">Refinement</span>
+                    )}
+                  </div>
                 </div>
                 <p className="text-[10px] text-foreground line-clamp-2 mb-1">{h.prompt}</p>
                 <p className="text-[9px] text-muted-foreground line-clamp-2">{h.summary}</p>
