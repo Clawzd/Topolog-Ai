@@ -111,18 +111,24 @@ function buildStar(ax, ay, node, link) {
 }
 
 /**
- * BUS: Shared backbone barrier with drop taps.
- * Emits one bus barrier (environmentKind:'bus') plus device nodes above/below.
- * Each tap is a flat device → bus link; busExpansion converts those into the
- * canvas-internal anchor format on load, so the rendering uses the real
- * Bus Backbone primitive instead of a chain of switches.
+ * BUS: Shared backbone with 4 star-cluster concentrators tapping off it.
+ * Matches the classic "bus of stars" diagram: a horizontal backbone line
+ * (Bus Backbone barrier) with 4 switches that each act as a local star hub,
+ * plus an edge router at the far left.
+ *
+ * Layout:
+ *   Router → (normal link) → SW-A
+ *
+ *   SW-A ─── SW-B ─── SW-C ─── SW-D     ← 4 concentrators tap the bus
+ *   ────────────────── BUS ──────────────
+ *    PC PC     AP Laptop  Server NAS    Camera Phone
  */
 function buildBus(ax, ay, node, link) {
-  const halfLen = 460;
+  const halfLen = 420;
   const x1 = ax - halfLen;
   const x2 = ax + halfLen;
   const yLine = ay;
-  const portCount = 10;
+  const portCount = 8;
 
   const bus = {
     id: 'bus_pattern_main',
@@ -137,27 +143,42 @@ function buildBus(ax, ay, node, link) {
     x1, y1: yLine, x2, y2: yLine,
   };
 
-  // Device row above the backbone
-  const yUp = yLine - 150;
-  const router = node('router', 'Bus — Edge Router', ax - 380, yUp, { ip: '10.2.0.1' });
-  const fw = node('firewall', 'Bus — Firewall', ax - 220, yUp, { ip: '10.2.0.2' });
-  const srv = node('server', 'Bus — Server', ax - 60, yUp, { ip: '10.2.10.1' });
-  const nas = node('nas', 'Bus — NAS', ax + 100, yUp, { ip: '10.2.10.2' });
-  const printer = node('printer', 'Bus — Printer', ax + 260, yUp, { ip: '10.2.1.70' });
+  // 4 concentrator switches that tap the bus (evenly spaced)
+  const spacing = (halfLen * 2) / 4; // ~210 px
+  const cxA = ax - halfLen + spacing * 0.5; // ~ax - 315
+  const cxB = ax - halfLen + spacing * 1.5; // ~ax - 105
+  const cxC = ax - halfLen + spacing * 2.5; // ~ax + 105
+  const cxD = ax - halfLen + spacing * 3.5; // ~ax + 315
 
-  // Device row below the backbone
-  const yDown = yLine + 150;
-  const pc1 = node('pc', 'Bus — PC 1', ax - 380, yDown, { ip: '10.2.1.50' });
-  const pc2 = node('pc', 'Bus — PC 2', ax - 220, yDown, { ip: '10.2.1.51' });
-  const ap = node('ap', 'Bus — WiFi AP', ax - 60, yDown, { ip: '10.2.1.10' });
-  const phone = node('phone', 'Bus — VoIP', ax + 100, yDown, { ip: '10.2.1.60' });
-  const cam = node('camera', 'Bus — Camera', ax + 260, yDown, { ip: '10.2.1.80' });
+  const swA = node('switch', 'Bus — Star Hub A', cxA, yLine - 140, { ip: '10.2.1.1' });
+  const swB = node('switch', 'Bus — Star Hub B', cxB, yLine - 140, { ip: '10.2.1.2' });
+  const swC = node('switch', 'Bus — Star Hub C', cxC, yLine + 140, { ip: '10.2.1.3' });
+  const swD = node('switch', 'Bus — Star Hub D', cxD, yLine + 140, { ip: '10.2.1.4' });
 
-  const nodes = [router, fw, srv, nas, printer, pc1, pc2, ap, phone, cam];
+  // Star cluster A (above-left) — 2 endpoints above swA
+  const pc1 = node('pc', 'Bus — PC 1', cxA - 80, yLine - 280, { ip: '10.2.10.50' });
+  const pc2 = node('pc', 'Bus — PC 2', cxA + 80, yLine - 280, { ip: '10.2.10.51' });
 
-  // Each device taps the bus. busExpansion will create the anchor + final link.
-  const tap = (n, port, type = 'ethernet', label = 'Bus') => ({
-    id: `lp_bus_${port}`,
+  // Star cluster B (above-right) — 2 endpoints above swB
+  const ap = node('ap', 'Bus — WiFi AP', cxB - 80, yLine - 280, { ip: '10.2.10.10' });
+  const laptop = node('laptop', 'Bus — Laptop', cxB + 80, yLine - 280, { ip: '10.2.10.52' });
+
+  // Star cluster C (below-left) — 2 endpoints below swC
+  const srv = node('server', 'Bus — Server', cxC - 80, yLine + 280, { ip: '10.2.20.1' });
+  const nas = node('nas', 'Bus — NAS', cxC + 80, yLine + 280, { ip: '10.2.20.2' });
+
+  // Star cluster D (below-right) — 2 endpoints below swD
+  const cam = node('camera', 'Bus — Camera', cxD - 80, yLine + 280, { ip: '10.2.10.80' });
+  const phone = node('phone', 'Bus — VoIP', cxD + 80, yLine + 280, { ip: '10.2.10.60' });
+
+  // Edge router at the far left, connected to swA via normal link
+  const router = node('router', 'Bus — Edge Router', ax - halfLen - 120, yLine - 140, { ip: '10.2.0.1' });
+
+  const nodes = [router, swA, swB, swC, swD, pc1, pc2, ap, laptop, srv, nas, cam, phone];
+
+  // Bus taps: each concentrator switch taps the backbone
+  const tap = (n, port, type = 'ethernet', label = '') => ({
+    id: `lp_bus_${port}_${Math.random().toString(36).slice(2, 5)}`,
     source: n.id,
     target: bus.id,
     type,
@@ -167,17 +188,26 @@ function buildBus(ax, ay, node, link) {
   });
 
   const links = [
-    tap(router, 0),
-    tap(fw, 1),
-    tap(srv, 2, 'fiber', 'Backbone'),
-    tap(nas, 3, 'fiber', 'Backbone'),
-    tap(printer, 4),
-    tap(pc1, 5),
-    tap(pc2, 6),
-    tap(ap, 7),
-    tap(phone, 8),
-    tap(cam, 9),
-  ].map((l) => ({ ...l, id: `${l.id}_${Math.random().toString(36).slice(2, 6)}` }));
+    // Router → Star Hub A (normal node-to-node link, not a bus tap)
+    link(router.id, swA.id, 'wan', 'WAN'),
+    // 4 concentrators tap the bus
+    tap(swA, 1),
+    tap(swB, 3),
+    tap(swC, 4),
+    tap(swD, 6),
+    // Star cluster A
+    link(swA.id, pc1.id, 'ethernet', ''),
+    link(swA.id, pc2.id, 'ethernet', ''),
+    // Star cluster B
+    link(swB.id, ap.id, 'ethernet', 'PoE'),
+    link(swB.id, laptop.id, 'ethernet', ''),
+    // Star cluster C
+    link(swC.id, srv.id, 'ethernet', '1Gbps'),
+    link(swC.id, nas.id, 'ethernet', '1Gbps'),
+    // Star cluster D
+    link(swD.id, cam.id, 'ethernet', 'PoE'),
+    link(swD.id, phone.id, 'ethernet', 'PoE'),
+  ];
 
   return { nodes, links, barriers: [bus] };
 }
@@ -356,82 +386,117 @@ function buildTree(ax, ay, node, link) {
 }
 
 /**
- * HYBRID: Enterprise layout combining star cores, bus backbone, and mesh redundancy.
- * Full professional multi-zone network.
+ * HYBRID: Bus backbone + 3 star clusters + mesh redundancy between cores.
+ * Uses the Bus Backbone barrier so the backbone renders as the real element.
+ *
+ * Layout:
+ *   Cloud → Router → Firewall    (WAN edge, top)
+ *                  ↓
+ *   Core-A ──── Core-B ──── Core-C   ← 3 cores tap the Bus Backbone
+ *   ═══════════ BUS BACKBONE ═══════════
+ *    ★ Star A       ★ Star B       ★ Star C
+ *   (Office)     (Server room)  (Wireless/IoT)
+ *
+ *   Core-A ←──── mesh cross-link ────→ Core-C
  */
 function buildHybrid(ax, ay, node, link) {
-  // WAN Edge (top)
-  const cloud = node('cloud', 'Hybrid — ISP', ax, ay - 300, { ip: '203.0.113.1' });
-  const edgeRouter = node('router', 'Hybrid — Edge Router', ax - 120, ay - 180, { ip: '10.6.0.1' });
-  const fw = node('firewall', 'Hybrid — Firewall', ax + 120, ay - 180, { ip: '10.6.0.2' });
+  // Bus backbone across the middle
+  const halfLen = 380;
+  const busY = ay;
+  const bus = {
+    id: 'hybrid_bus_main',
+    shape: 'line',
+    environmentKind: 'bus',
+    barrierType: 'metal',
+    thickness: 'medium',
+    portCount: 6,
+    blocksWifi: false,
+    blocksCablePath: false,
+    label: 'Core backbone',
+    x1: ax - halfLen, y1: busY, x2: ax + halfLen, y2: busY,
+  };
 
-  // Core bus backbone (horizontal)
-  const coreSw1 = node('switch', 'Hybrid — Core A', ax - 300, ay - 40, { ip: '10.6.1.1' });
-  const coreSw2 = node('switch', 'Hybrid — Core B', ax, ay - 40, { ip: '10.6.1.2' });
-  const coreSw3 = node('switch', 'Hybrid — Core C', ax + 300, ay - 40, { ip: '10.6.1.3' });
-  const lb = node('loadbalancer', 'Hybrid — Load Balancer', ax, ay - 120, { ip: '10.6.1.10' });
+  // WAN edge (above the bus)
+  const cloud = node('cloud', 'Hybrid — ISP', ax, ay - 320, { ip: '203.0.113.1' });
+  const edgeRouter = node('router', 'Hybrid — Edge Router', ax - 100, ay - 200, { ip: '10.6.0.1' });
+  const fw = node('firewall', 'Hybrid — Firewall', ax + 100, ay - 200, { ip: '10.6.0.2' });
 
-  // Star zone 1 (left - office)
-  const ap1 = node('ap', 'Hybrid — Office AP', ax - 400, ay + 120, { ip: '10.6.10.10' });
-  const pc1 = node('pc', 'Hybrid — PC 1', ax - 480, ay + 250, { ip: '10.6.10.50' });
-  const pc2 = node('pc', 'Hybrid — PC 2', ax - 350, ay + 250, { ip: '10.6.10.51' });
-  const phone = node('phone', 'Hybrid — VoIP', ax - 480, ay + 120, { ip: '10.6.10.60' });
-  const printer = node('printer', 'Hybrid — Printer', ax - 220, ay + 250, { ip: '10.6.10.70' });
+  // 3 core switches — tap the bus backbone
+  const cxA = ax - 280;
+  const cxB = ax;
+  const cxC = ax + 280;
+  const coreY = ay - 110;  // sit above the bus line
 
-  // Star zone 2 (center - server room)
-  const srv1 = node('server', 'Hybrid — Web Server', ax - 80, ay + 120, { ip: '10.6.20.1' });
-  const srv2 = node('server', 'Hybrid — App Server', ax + 80, ay + 120, { ip: '10.6.20.2' });
-  const nas = node('nas', 'Hybrid — NAS', ax, ay + 250, { ip: '10.6.20.10' });
-  const pdu = node('pdu', 'Hybrid — UPS/PDU', ax - 80, ay + 250, { ip: '10.6.20.20' });
+  const coreA = node('switch', 'Hybrid — Core A', cxA, coreY, { ip: '10.6.1.1' });
+  const coreB = node('switch', 'Hybrid — Core B', cxB, coreY, { ip: '10.6.1.2' });
+  const coreC = node('switch', 'Hybrid — Core C', cxC, coreY, { ip: '10.6.1.3' });
 
-  // Star zone 3 (right - wireless/IoT)
-  const ap2 = node('ap', 'Hybrid — IoT AP', ax + 300, ay + 120, { ip: '10.6.30.10' });
-  const cam1 = node('camera', 'Hybrid — Camera 1', ax + 220, ay + 250, { ip: '10.6.30.80' });
-  const cam2 = node('camera', 'Hybrid — Camera 2', ax + 350, ay + 250, { ip: '10.6.30.81' });
-  const iot = node('iot', 'Hybrid — IoT Gateway', ax + 480, ay + 120, { ip: '10.6.30.90' });
-  const laptop = node('laptop', 'Hybrid — Laptop', ax + 480, ay + 250, { ip: '10.6.30.52' });
-  const smarttv = node('smarttv', 'Hybrid — Smart TV', ax + 350, ay + 120, { ip: '10.6.30.95' });
+  // Star A — office zone (below-left)
+  const ap1   = node('ap',      'Hybrid — Office AP',  cxA - 80, ay + 140, { ip: '10.6.10.10' });
+  const phone  = node('phone',   'Hybrid — VoIP',       cxA + 80, ay + 140, { ip: '10.6.10.60' });
+  const pc1    = node('pc',      'Hybrid — PC 1',       cxA - 80, ay + 280, { ip: '10.6.10.50' });
+  const printer= node('printer', 'Hybrid — Printer',    cxA + 80, ay + 280, { ip: '10.6.10.70' });
+
+  // Star B — server room (below-center)
+  const srv1   = node('server',  'Hybrid — Web Server', cxB - 80, ay + 140, { ip: '10.6.20.1' });
+  const srv2   = node('server',  'Hybrid — App Server', cxB + 80, ay + 140, { ip: '10.6.20.2' });
+  const nas    = node('nas',     'Hybrid — NAS',        cxB - 80, ay + 280, { ip: '10.6.20.10' });
+  const pdu    = node('pdu',     'Hybrid — UPS/PDU',    cxB + 80, ay + 280, { ip: '10.6.20.20' });
+
+  // Star C — wireless/IoT (below-right)
+  const ap2    = node('ap',      'Hybrid — IoT AP',     cxC - 80, ay + 140, { ip: '10.6.30.10' });
+  const iot    = node('iot',     'Hybrid — IoT GW',     cxC + 80, ay + 140, { ip: '10.6.30.90' });
+  const laptop = node('laptop',  'Hybrid — Laptop',     cxC - 80, ay + 280, { ip: '10.6.30.52' });
+  const cam    = node('camera',  'Hybrid — Camera',     cxC + 80, ay + 280, { ip: '10.6.30.80' });
 
   const nodes = [
-    cloud, edgeRouter, fw, lb, coreSw1, coreSw2, coreSw3,
-    ap1, pc1, pc2, phone, printer,
+    cloud, edgeRouter, fw,
+    coreA, coreB, coreC,
+    ap1, phone, pc1, printer,
     srv1, srv2, nas, pdu,
-    ap2, cam1, cam2, iot, laptop, smarttv,
+    ap2, iot, laptop, cam,
   ];
+
+  const tap = (n, port) => ({
+    id: `hy_tap_${port}_${Math.random().toString(36).slice(2, 5)}`,
+    source: n.id,
+    target: bus.id,
+    type: 'fiber',
+    label: 'Backbone',
+    busId: bus.id,
+    busPortIndex: port,
+  });
 
   const links = [
     // WAN edge
     link(cloud.id, edgeRouter.id, 'wan', 'WAN'),
-    link(cloud.id, fw.id, 'wan', 'WAN Backup'),
-    link(edgeRouter.id, lb.id, 'fiber', '10Gbps'),
-    link(fw.id, lb.id, 'fiber', '10Gbps'),
-    // Backbone (bus)
-    link(lb.id, coreSw2.id, 'fiber', '10Gbps'),
-    link(coreSw1.id, coreSw2.id, 'fiber', 'Backbone'),
-    link(coreSw2.id, coreSw3.id, 'fiber', 'Backbone'),
-    // Mesh redundancy between cores
-    link(coreSw1.id, coreSw3.id, 'fiber', 'Cross-link'),
-    // Star zone 1 (office)
-    link(coreSw1.id, ap1.id, 'ethernet', 'PoE'),
-    link(coreSw1.id, phone.id, 'ethernet', 'PoE'),
+    link(cloud.id, fw.id, 'wan', 'Backup WAN'),
+    link(edgeRouter.id, coreB.id, 'fiber', '10Gbps'),
+    link(fw.id, coreB.id, 'fiber', '10Gbps'),
+    // 3 cores tap the bus backbone
+    tap(coreA, 1),
+    tap(coreB, 3),
+    tap(coreC, 5),
+    // Mesh cross-link between edge cores (redundancy)
+    link(coreA.id, coreC.id, 'fiber', 'Cross-link'),
+    // Star A — office
+    link(coreA.id, ap1.id, 'ethernet', 'PoE'),
+    link(coreA.id, phone.id, 'ethernet', 'PoE'),
     link(ap1.id, pc1.id, 'wifi', 'WiFi'),
-    link(ap1.id, pc2.id, 'wifi', 'WiFi'),
-    link(coreSw1.id, printer.id, 'ethernet', ''),
-    // Star zone 2 (servers)
-    link(coreSw2.id, srv1.id, 'fiber', '10Gbps'),
-    link(coreSw2.id, srv2.id, 'fiber', '10Gbps'),
-    link(srv2.id, nas.id, 'ethernet', '1Gbps'),
+    link(coreA.id, printer.id, 'ethernet', ''),
+    // Star B — servers
+    link(coreB.id, srv1.id, 'fiber', '10Gbps'),
+    link(coreB.id, srv2.id, 'fiber', '10Gbps'),
+    link(coreB.id, nas.id, 'ethernet', '1Gbps'),
     link(pdu.id, srv1.id, 'ethernet', 'MGMT'),
-    // Star zone 3 (wireless/IoT)
-    link(coreSw3.id, ap2.id, 'ethernet', 'PoE'),
-    link(coreSw3.id, iot.id, 'ethernet', ''),
-    link(coreSw3.id, smarttv.id, 'ethernet', ''),
-    link(ap2.id, cam1.id, 'wifi', 'WiFi'),
-    link(ap2.id, cam2.id, 'wifi', 'WiFi'),
+    // Star C — wireless/IoT
+    link(coreC.id, ap2.id, 'ethernet', 'PoE'),
+    link(coreC.id, iot.id, 'ethernet', ''),
     link(ap2.id, laptop.id, 'wifi', 'WiFi'),
+    link(ap2.id, cam.id, 'wifi', 'WiFi'),
   ];
 
-  return { nodes, links };
+  return { nodes, links, barriers: [bus] };
 }
 
 /** Helper: returns [x, y] from polar coords */
@@ -455,11 +520,17 @@ export const TOPOLOGY_PATTERN_IDS = new Set(TOPOLOGY_PATTERNS.map((p) => p.id));
 /** Map free-text prompt to a pattern id, or null. */
 export function patternIdFromPrompt(text) {
   const t = String(text || '').toLowerCase();
+  // Hybrid must be checked first — it contains "bus", "mesh", etc.
   if (/\bhybrid\b/.test(t)) return 'hybrid';
-  if (/\b(full[-\s]?)?mesh\b|\bmesh\s+topology\b/.test(t)) return 'mesh';
-  if (/\bring\b/.test(t)) return 'ring';
-  if (/\b(bus|backbone|daisy[-\s]?chain)\b/.test(t)) return 'bus';
-  if (/\b(tree|hierarchical|spine[-\s]?leaf|spoke)\b/.test(t)) return 'tree';
-  if (/\bstar\b/.test(t)) return 'star';
+  // Mesh
+  if (/\b(full[-\s]?)?mesh\b|\bmesh\s+topology\b|\bfully[-\s]connected\b|\bevery[-\s]to[-\s]every\b/.test(t)) return 'mesh';
+  // Ring
+  if (/\bring\b|\btoken[-\s]ring\b|\bclosed[-\s]loop\b|\bcircular\b/.test(t)) return 'ring';
+  // Bus
+  if (/\b(bus|backbone|daisy[-\s]?chain|shared[-\s]cable|linear[-\s]network)\b/.test(t)) return 'bus';
+  // Tree / spine-leaf
+  if (/\b(tree|hierarchical|spine[-\s]?leaf|concentrator|multi[-\s]tier|3[-\s]tier)\b/.test(t)) return 'tree';
+  // Star
+  if (/\bstar\b|\bcentral[-\s]hub\b|\bhub[-\s]and[-\s]spoke\b/.test(t)) return 'star';
   return null;
 }
