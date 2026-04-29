@@ -55,23 +55,54 @@ const AIPanel = forwardRef(
       const mapState = getMapState ? getMapState() : undefined;
       const topology = await generateTopologyFromPrompt(cleanText, mapState);
 
-      // Ensure all IDs are unique
+      // Re-ID nodes, barriers, rooms, vlans so they don't collide with
+      // anything already on the canvas, then remap every reference.
+      const nodeIdMap = {};
+      const newNodes = topology.nodes.map((n) => {
+        const nextId = generateId(n.isBusAnchor ? 'bn' : 'n');
+        nodeIdMap[n.id] = nextId;
+        return { ...n, id: nextId, vlan: n.vlan || null };
+      });
+
+      const barrierIdMap = {};
+      const newBarriers = (topology.barriers || []).map((b) => {
+        const nextId = generateId('b');
+        barrierIdMap[b.id] = nextId;
+        return { ...b, id: nextId };
+      });
+
+      // Bus anchors carry a busId pointing into barriers — remap.
+      for (const node of newNodes) {
+        if (node.isBusAnchor && node.busId && barrierIdMap[node.busId]) {
+          node.busId = barrierIdMap[node.busId];
+        }
+      }
+
+      const newLinks = topology.links.map((l) => {
+        const remapped = {
+          ...l,
+          id: generateId('l'),
+          source: nodeIdMap[l.source] || l.source,
+          target: nodeIdMap[l.target] || l.target,
+        };
+        if (l.busId && barrierIdMap[l.busId]) remapped.busId = barrierIdMap[l.busId];
+        if (l.targetBusAnchorId && nodeIdMap[l.targetBusAnchorId]) {
+          remapped.targetBusAnchorId = nodeIdMap[l.targetBusAnchorId];
+        }
+        if (l.sourceBusAnchorId && nodeIdMap[l.sourceBusAnchorId]) {
+          remapped.sourceBusAnchorId = nodeIdMap[l.sourceBusAnchorId];
+        }
+        return remapped;
+      });
+
       const fixedTopology = {
         ...topology,
-        nodes: topology.nodes.map(n => ({ ...n, id: generateId('n'), vlan: n.vlan || null })),
-        links: [],
-        rooms: topology.rooms.map(r => ({ ...r, id: generateId('r') })),
-        vlans: topology.vlans.map(v => ({ ...v, id: generateId('vlan') })),
+        nodes: newNodes,
+        links: newLinks,
+        rooms: topology.rooms.map((r) => ({ ...r, id: generateId('r') })),
+        vlans: topology.vlans.map((v) => ({ ...v, id: generateId('vlan') })),
+        barriers: newBarriers,
       };
-      // Re-map link source/target to new node IDs
-      const idMap = {};
-      topology.nodes.forEach((n, i) => { idMap[n.id] = fixedTopology.nodes[i].id; });
-      fixedTopology.links = topology.links.map(l => ({
-        ...l,
-        id: generateId('l'),
-        source: idMap[l.source] || l.source,
-        target: idMap[l.target] || l.target,
-      }));
       const entry = {
         id: Date.now(),
         prompt: cleanText,

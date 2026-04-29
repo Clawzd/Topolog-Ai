@@ -1,5 +1,6 @@
 import { generatePromptTopology } from './promptTopologyGenerator';
 import { applySmartLayout, recommendTopology } from './smartLayout';
+import { expandBusLinksForCanvas } from './busExpansion';
 
 const TOPOLOGY_SCHEMA = {
   nodes: [
@@ -13,6 +14,17 @@ const TOPOLOGY_SCHEMA = {
   ],
   vlans: [
     { id: 'v1', name: 'CORP', label: 'Corporate', color: '#14b8a6', subnet: '10.0.10.0/24' },
+  ],
+  // OPTIONAL — only include when topology=BUS. One bus barrier per backbone.
+  barriers: [
+    {
+      id: 'bus1',
+      shape: 'line',
+      environmentKind: 'bus',
+      x1: 120, y1: 320, x2: 880, y2: 320,
+      portCount: 8,
+      label: 'Office Bus Backbone',
+    },
   ],
   summary: 'Short design summary.',
 };
@@ -84,6 +96,7 @@ function normalizeTopology(topology) {
     links: Array.isArray(topology.links) ? topology.links : [],
     rooms: Array.isArray(topology.rooms) ? topology.rooms : [],
     vlans: Array.isArray(topology.vlans) ? topology.vlans : [],
+    barriers: Array.isArray(topology.barriers) ? topology.barriers : [],
   };
 }
 
@@ -142,31 +155,58 @@ function buildSystemPrompt(mapState) {
     '',
     '## LINK TYPES: ethernet, fiber, wifi, wan, vpn',
     '',
-    '## TOPOLOGY ARCHITECTURE RULES',
-    'Choose the BEST topology pattern for the scenario:',
-    '- STAR: Central hub (switch/router) connecting endpoints radially. Best for small offices, simple networks.',
-    '- BUS: Devices on a shared linear backbone. Place devices in a horizontal line with backbone cable, plus drop cables to endpoints above/below. Good for industrial, sequential environments.',
-    '- RING: Circular redundant loop. Each node connects to exactly 2 neighbors forming a cycle. Good for metro/WAN, provider networks.',
-    '- MESH: Every node connected to every other (full mesh) or most others (partial mesh). Best for critical high-availability needs.',
-    '- TREE (Spine-Leaf): Hierarchical layers — core at top, distribution in middle, access/endpoints at bottom. Best for data centers, campuses, most offices.',
-    '- HYBRID: Combines multiple patterns (e.g., star cores connected by ring backbone, tree with mesh at core). Best for enterprise, multi-site.',
+    '## TOPOLOGY ARCHITECTURE — pick exactly ONE shape, then build it correctly',
+    'The classic four shapes (always consider these first):',
+    '- STAR: one central hub (switch or router); every other device connects directly to that hub and to nothing else. Best for small offices, single rooms, simple LANs.',
+    '- BUS: a single shared backbone cable; every device taps onto the same backbone. Best for linear/industrial layouts, classroom/lab demos, simple legacy LANs. Use the BUS BARRIER ELEMENT (see below) — do NOT fake a bus by chaining switches.',
+    '- RING: nodes form a closed loop; each node has exactly two neighbors and the last node links back to the first. Best for redundant metro/WAN cores, fiber rings, provider backbones.',
+    '- MESH: every core node is linked to every other core node (full mesh) or most others (partial mesh). Best for high-availability cores, critical infra, redundant data centers.',
+    'Extended shapes (only when the brief clearly calls for them):',
+    '- TREE / Spine-Leaf: hierarchical layers — Internet at top, edge/firewall, core/distribution, access, endpoints. Best for data centers and multi-floor offices.',
+    '- HYBRID: combines two of the above (e.g., star access on a ring backbone). Only use when the brief explicitly mixes shapes.',
+    '',
+    'Pick the shape based on the user prompt:',
+    '- "bus", "backbone", "shared cable", "daisy chain", "classroom", "lab demo" → BUS',
+    '- "ring", "loop", "redundant fiber", "metro" → RING',
+    '- "mesh", "fully connected", "every-to-every", "HA core", "no single point of failure" → MESH',
+    '- "office", "home", "small network", "central switch" → STAR',
+    '- "data center", "campus", "spine-leaf", "multi-floor" → TREE',
+    '- otherwise default to STAR for ≤10 devices, TREE for larger networks.',
     '',
     recommendation ? `RECOMMENDED TOPOLOGY for this request: ${recommendation.topology.toUpperCase()} — ${recommendation.reason}` : '',
     '',
-    '## LAYOUT RULES (CRITICAL)',
+    '## HOW TO BUILD EACH SHAPE (JSON output rules)',
+    'STAR — one hub node + radial endpoints:',
+    '  - Place the hub (a "switch" or "router") at the center, e.g. (x=460, y=320).',
+    '  - Place 6–10 endpoint nodes around it on a circle of radius 150–220.',
+    '  - Every link has the hub as one end and an endpoint as the other. NO endpoint-to-endpoint links.',
+    '',
+    'RING — closed loop of core nodes:',
+    '  - Place 4–8 core nodes (switch/router) on a circle of radius ~170 (e.g. center 460,320).',
+    '  - Create a link between every consecutive pair AND a final link closing the loop (last → first). Every core node ends up with exactly 2 ring links.',
+    '  - Endpoints (PCs, APs, servers) hang off ring nodes via separate ethernet/wifi links.',
+    '',
+    'MESH — full mesh of core nodes:',
+    '  - Place 3–5 core nodes (router/switch) roughly equidistant.',
+    '  - For N core nodes emit N*(N-1)/2 fiber links — one between EVERY pair. Verify the count.',
+    '  - Endpoints attach to one core node via ethernet/wifi; do NOT mesh the endpoints.',
+    '',
+    'BUS — one shared backbone (USE THE BUS BARRIER ELEMENT):',
+    '  - Output exactly ONE entry in `barriers` with: `shape:"line"`, `environmentKind:"bus"`, x1/y1/x2/y2 (horizontal line, e.g. y1=y2=380, x1=120, x2=900), `portCount` between 6 and 16, and a meaningful `label`.',
+    '  - For each device that taps the bus, output a normal node (router/switch/server/pc/etc.) placed above (y around 240) or below (y around 520) the backbone line.',
+    '  - For each tap, output a link whose `source` is the device id and whose `target` is the bus barrier id (the same string used in `barriers[i].id`). Set `busId` to that same barrier id and `busPortIndex` to a unique integer in [0, portCount-1] (no two links share the same index on the same bus). Set `type` to "ethernet" or "fiber".',
+    '  - Do NOT create a chain of switches to imitate a bus, and do NOT add bus-anchor nodes yourself — the canvas creates them automatically when it sees the link → bus reference.',
+    '  - You may still output one link from cloud/WAN/firewall to the first bus device using the normal node-to-node form (no busId).',
+    '',
+    'TREE — hierarchical layers:',
+    '  - Layer 1 (y=40-100): cloud/internet. Layer 2 (y=150-220): firewall/edge router. Layer 3 (y=280-350): core/distribution. Layer 4 (y=420-500): access switches/APs. Layer 5 (y=560-680): endpoints.',
+    '  - Each device only links upward to its parent layer (and laterally only at the core).',
+    '',
+    '## LAYOUT RULES (apply to every shape)',
     '- Canvas uses pixel coordinates. Each device node is 90px wide, 56px tall.',
     '- NEVER place two devices at the same or overlapping coordinates. Minimum 24px gap between all nodes.',
-    '- Arrange devices in clear, organized layers:',
-    '  Layer 1 (y=40-100): Internet/Cloud/WAN',
-    '  Layer 2 (y=150-220): Edge security (firewalls, edge routers)',
-    '  Layer 3 (y=280-350): Core/Distribution (core switches, routers)',
-    '  Layer 4 (y=420-500): Access layer (access switches, APs)',
-    '  Layer 5 (y=560-680): Endpoints (PCs, phones, cameras, printers, etc.)',
     '- Spread devices horizontally with at least 120px between centers.',
-    '- For star topology: place hub at center, endpoints in a circle around it (radius 150-200px).',
-    '- For bus: place backbone devices in a horizontal line, endpoints branching above/below.',
-    '- For ring: place nodes in a circle or oval.',
-    '- For tree: use clear hierarchical rows.',
+    '- Keep the whole drawing inside x=40..1100, y=40..720.',
     '',
     '## ROOM RULES',
     '- Create rooms/zones to logically group devices (e.g., Server Room, Office Area, Security Zone).',
@@ -243,19 +283,17 @@ export async function generateTopologyFromPrompt(prompt, mapState) {
   const config = getDeepSeekConfig();
   if (!config.enabled) {
     const topology = generatePromptTopology(prompt);
-    // Apply smart layout even for local generator
-    return applySmartLayout(topology, mapState);
+    return expandBusLinksForCanvas(applySmartLayout(topology, mapState));
   }
 
   try {
     const topology = await generateWithDeepSeek(prompt, mapState);
-    // Apply smart layout to resolve any remaining overlaps
-    return applySmartLayout(topology, mapState);
+    return expandBusLinksForCanvas(applySmartLayout(topology, mapState));
   } catch (error) {
     console.warn(error);
     const fallback = generatePromptTopology(prompt);
     return {
-      ...applySmartLayout(fallback, mapState),
+      ...expandBusLinksForCanvas(applySmartLayout(fallback, mapState)),
       summary: 'DeepSeek generation failed, so TopologAi used the local generator instead.',
     };
   }

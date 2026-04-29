@@ -30,8 +30,8 @@ export default function TemplateGallery({ onSelect, onClose }) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Template Gallery</h2>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Start from a pre-built network topology</p>
+            <h2 className="text-sm font-semibold text-foreground">Example Gallery</h2>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Start from a simple sample network layout</p>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1 rounded">
             <X className="w-4 h-4" />

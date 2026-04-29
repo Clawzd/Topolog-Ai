@@ -133,10 +133,25 @@ export function applySmartLayout(topology, mapState = {}) {
   // Auto-size rooms to fit their contained devices
   const adjustedRooms = autoSizeRooms(topology.rooms, adjustedNodes, offsetX, offsetY);
 
+  // Shift any AI-emitted barriers (e.g. bus backbones) by the same offset,
+  // so they stay attached to the devices that reference them.
+  const adjustedBarriers = (topology.barriers || []).map((b) => {
+    if (offsetX === 0 && offsetY === 0) return b;
+    const shifted = { ...b };
+    if (typeof b.x1 === 'number') shifted.x1 = b.x1 + offsetX;
+    if (typeof b.y1 === 'number') shifted.y1 = b.y1 + offsetY;
+    if (typeof b.x2 === 'number') shifted.x2 = b.x2 + offsetX;
+    if (typeof b.y2 === 'number') shifted.y2 = b.y2 + offsetY;
+    if (typeof b.x === 'number') shifted.x = b.x + offsetX;
+    if (typeof b.y === 'number') shifted.y = b.y + offsetY;
+    return shifted;
+  });
+
   return {
     ...topology,
     nodes: adjustedNodes,
     rooms: adjustedRooms,
+    barriers: adjustedBarriers,
   };
 }
 

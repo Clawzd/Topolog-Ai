@@ -1,6 +1,8 @@
 import { LayoutGrid, Sparkles, Wand2, ArrowDown } from 'lucide-react';
 
 export default function EmptyState({ onTemplates, onQuickStart, onDescribe }) {
+  const hasExamples = typeof onTemplates === 'function';
+
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
       <div className="text-center max-w-md pointer-events-auto">
@@ -18,7 +20,9 @@ export default function EmptyState({ onTemplates, onQuickStart, onDescribe }) {
 
         <h2 className="text-xl font-bold text-foreground mb-3 tracking-tight">Design Your Network</h2>
         <p className="text-sm text-muted-foreground leading-relaxed mb-8 max-w-sm mx-auto">
-          Describe a network, pick a template, or drag devices onto the canvas to get started.
+          {hasExamples
+            ? 'Describe a network, pick an example, or drag devices onto the canvas to get started.'
+            : 'Describe a network or drag devices onto the canvas to get started.'}
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -29,13 +33,15 @@ export default function EmptyState({ onTemplates, onQuickStart, onDescribe }) {
             <Wand2 className="w-4 h-4" />
             Describe Environment
           </button>
-          <button
-            onClick={onTemplates}
-            className="flex items-center gap-2.5 bg-muted/60 hover:bg-muted border border-border/60 text-foreground text-sm font-medium px-6 py-2.5 rounded-xl transition-all hover:border-primary/30 active:scale-[0.98]"
-          >
-            <LayoutGrid className="w-4 h-4" />
-            Browse Templates
-          </button>
+          {hasExamples && (
+            <button
+              onClick={onTemplates}
+              className="flex items-center gap-2.5 bg-muted/60 hover:bg-muted border border-border/60 text-foreground text-sm font-medium px-6 py-2.5 rounded-xl transition-all hover:border-primary/30 active:scale-[0.98]"
+            >
+              <LayoutGrid className="w-4 h-4" />
+              Browse Examples
+            </button>
+          )}
           <button
             onClick={onQuickStart}
             className="flex items-center gap-2.5 bg-muted/40 hover:bg-muted border border-border/60 text-foreground text-sm font-medium px-6 py-2.5 rounded-xl transition-all hover:border-primary/30 active:scale-[0.98]"

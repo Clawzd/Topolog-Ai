@@ -36,7 +36,7 @@ export const DEVICE_TYPES = {
       defaultPorts: ['WAN', 'LAN', 'DMZ'],
     },
     cloud: {
-      label: 'Cloud/ISP',
+      label: 'Internet',
       icon: '☁️',
       color: '#64748b',
       shape: 'cloud',
@@ -127,6 +127,45 @@ export const DEVICE_TYPES = {
       defaultPorts: ['WiFi', 'ETH0'],
     },
   };
+
+  export const EXPO_SUPPORTED_DEVICE_TYPES = ['cloud', 'router', 'switch', 'firewall', 'ap', 'server', 'pc'];
+
+  const EXPO_DEVICE_TYPE_MAP = {
+    laptop: 'pc',
+    printer: 'pc',
+    camera: 'pc',
+    phone: 'pc',
+    tablet: 'pc',
+    smarttv: 'pc',
+    nas: 'server',
+    loadbalancer: 'server',
+    iot: 'server',
+    pdu: 'server',
+    patchpanel: 'switch',
+  };
+
+  export function normalizeTopologyForExpo(topology = {}) {
+    const supported = new Set(EXPO_SUPPORTED_DEVICE_TYPES);
+    const nodes = (topology.nodes || [])
+      .map((node) => {
+        const mappedType = supported.has(node.type) ? node.type : (EXPO_DEVICE_TYPE_MAP[node.type] || 'pc');
+        return { ...node, type: mappedType };
+      });
+
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    const links = (topology.links || []).filter((link) => nodeIds.has(link.source) && nodeIds.has(link.target));
+
+    return {
+      ...topology,
+      nodes,
+      links,
+      rooms: topology.rooms || [],
+      vlans: topology.vlans || [],
+      barriers: topology.barriers || [],
+      vlanZones: topology.vlanZones || [],
+      powerZones: topology.powerZones || [],
+    };
+  }
 
   /** v3 §63–66 Visual identity (Ethernet / WiFi / Fiber / WAN / VPN) */
   export const LINK_TYPES = {

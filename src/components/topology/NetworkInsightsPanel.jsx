@@ -428,7 +428,7 @@ export default function NetworkInsightsPanel({
           </button>
           {[
             { label: 'VLANs', onClick: onOpenVlanManager },
-            { label: 'Templates', onClick: onTemplates },
+    { label: 'Examples', onClick: onTemplates },
             { label: 'Validate', onClick: onValidate },
             { label: 'Brief', onClick: onExportBrief },
             { label: 'Config', onClick: onExportConfig },

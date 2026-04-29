@@ -1,4 +1,4 @@
-﻿import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { DEVICE_TYPES, LINK_TYPES } from '../../lib/topologyData';
 import DEVICE_ICONS from '../../lib/deviceIcons';
 import { NODE_DIM, heatmapSignalSamples, mergeRoomDefaults, getCoChannelApPairs } from '../../lib/smartNetworkEngine';
@@ -67,6 +67,37 @@ function getCurvePath(x1, y1, x2, y2) {
 }
 
 const ALIGN_SNAP_PX = 8;
+const AUTO_BUS_ATTACH_PX = 28;
+
+function getBusPortCount(bus) {
+  const raw = Number(bus?.portCount);
+  if (!Number.isFinite(raw)) return 8;
+  return Math.min(64, Math.max(2, Math.round(raw)));
+}
+
+function getBusEndpoints(bus) {
+  const x1 = bus.x1 ?? bus.x;
+  const y1 = bus.y1 ?? bus.y;
+  const x2 = bus.x2 ?? bus.x + (bus.dx || 0);
+  const y2 = bus.y2 ?? bus.y + (bus.dy || 0);
+  return { x1, y1, x2, y2 };
+}
+
+function getBusPortPoint(bus, index) {
+  const { x1, y1, x2, y2 } = getBusEndpoints(bus);
+  const portCount = getBusPortCount(bus);
+  const t = portCount === 1 ? 0.5 : (index + 0.5) / portCount;
+  return { x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t };
+}
+
+function roomContainsNode(room, node) {
+  return (
+    node.x + NODE_W > room.x &&
+    node.x < room.x + room.w &&
+    node.y + NODE_H > room.y &&
+    node.y < room.y + room.h
+  );
+}
 
 /** Magnetic snap moving box (top-left px,py) to peer node boxes; returns snapped position + optional guide lines in world space. */
 function snapBoxToPeers(px, py, peerNodes, excludeIds, nodeW, nodeH) {
@@ -132,6 +163,60 @@ function pointToSegmentDist(px, py, x1, y1, x2, y2) {
   return Math.hypot(px - qx, py - qy);
 }
 
+/** Point inside axis-aligned rectangle (min/max corners). */
+function pointInRect(px, py, rx, ry, rw, rh) {
+  const x2 = rx + rw;
+  const y2 = ry + rh;
+  return px >= rx && px <= x2 && py >= ry && py <= y2;
+}
+
+function orient2d(px, py, qx, qy, rx, ry) {
+  return (qy - py) * (rx - qx) - (qx - px) * (ry - py);
+}
+
+function onSegment(px, py, qx, qy, rx, ry) {
+  return (
+    rx >= Math.min(px, qx) - 1e-9 &&
+    rx <= Math.max(px, qx) + 1e-9 &&
+    ry >= Math.min(py, qy) - 1e-9 &&
+    ry <= Math.max(py, qy) + 1e-9
+  );
+}
+
+function segmentIntersectsSegment(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
+  const eps = 1e-10;
+  const o1 = orient2d(ax1, ay1, ax2, ay2, bx1, by1);
+  const o2 = orient2d(ax1, ay1, ax2, ay2, bx2, by2);
+  const o3 = orient2d(bx1, by1, bx2, by2, ax1, ay1);
+  const o4 = orient2d(bx1, by1, bx2, by2, ax2, ay2);
+
+  if (Math.abs(o1) <= eps && onSegment(ax1, ay1, ax2, ay2, bx1, by1)) return true;
+  if (Math.abs(o2) <= eps && onSegment(ax1, ay1, ax2, ay2, bx2, by2)) return true;
+  if (Math.abs(o3) <= eps && onSegment(bx1, by1, bx2, by2, ax1, ay1)) return true;
+  if (Math.abs(o4) <= eps && onSegment(bx1, by1, bx2, by2, ax2, ay2)) return true;
+
+  return (o1 > eps) !== (o2 > eps) && (o3 > eps) !== (o4 > eps);
+}
+
+/** Segment vs axis-aligned rectangle intersection (includes fully inside segment). */
+function segmentIntersectsRect(x1, y1, x2, y2, rx, ry, rw, rh) {
+  if (
+    pointInRect(x1, y1, rx, ry, rw, rh) ||
+    pointInRect(x2, y2, rx, ry, rw, rh)
+  ) {
+    return true;
+  }
+  const rx2 = rx + rw;
+  const ry2 = ry + rh;
+  const edges = [
+    [rx, ry, rx2, ry],
+    [rx2, ry, rx2, ry2],
+    [rx2, ry2, rx, ry2],
+    [rx, ry2, rx, ry],
+  ];
+  return edges.some(([ex1, ey1, ex2, ey2]) => segmentIntersectsSegment(x1, y1, x2, y2, ex1, ey1, ex2, ey2));
+}
+
 export default function TopologyCanvas({
   nodes, links, rooms, vlans,
   barriers = [],
@@ -156,7 +241,7 @@ export default function TopologyCanvas({
   placementType = null,
   placementPattern = null,
   onPatternAdd,
-  onNodeMove, onNodeAdd, onLinkAdd, onLinkUpdate, onLinkDelete, onRoomAdd, onRoomResize, onRoomMove,
+  onNodeMove, onNodeAdd, onLinkAdd, onConnectNodeToBus, onLinkUpdate, onLinkDelete, onRoomAdd, onRoomResize, onRoomMove,
   onBeforeChange,
   zoom, pan, setZoom, setPan,
   connectingFrom, setConnectingFrom,
@@ -174,7 +259,7 @@ export default function TopologyCanvas({
   const touchPanRef = useRef(null);   // { startPanX, startPanY, startClientX, startClientY }
   const [dragging, setDragging] = useState(null);
   const [resizingRoom, setResizingRoom] = useState(null); // {id, handle, origRoom, startX, startY}
-  const [draggingRoom, setDraggingRoom] = useState(null); // {id, origX, origY, startClientX, startClientY}
+  const [draggingRoom, setDraggingRoom] = useState(null); // {id, origX, origY, startClientX, startClientY, nodeIds, nodeOrigins}
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [hoverNode, setHoverNode] = useState(null);
@@ -188,6 +273,8 @@ export default function TopologyCanvas({
   const [tooltip, setTooltip] = useState(null); // {x, y, link}
   const [badgeTooltip, setBadgeTooltip] = useState(null); // {x, y, nodeId}
   const [alignmentGuides, setAlignmentGuides] = useState(null); // { gx, gy } world coords or null
+  const [busAttachHint, setBusAttachHint] = useState(null); // { nodeId, busId, anchor: {x,y} }
+  const interactiveNodes = useMemo(() => nodes.filter((n) => !n.isBusAnchor), [nodes]);
 
   const svgToCanvas = useCallback((clientX, clientY) => {
     const svg = svgRef.current;
@@ -203,15 +290,15 @@ export default function TopologyCanvas({
   };
 
   const heatSamples = useMemo(() => {
-    if (heatmapMode !== 'signal' || !nodes.length) return [];
-    const xs = nodes.map(n => n.x);
-    const ys = nodes.map(n => n.y);
+    if (heatmapMode !== 'signal' || !interactiveNodes.length) return [];
+    const xs = interactiveNodes.map(n => n.x);
+    const ys = interactiveNodes.map(n => n.y);
     const minX = Math.min(...xs) - 160;
     const maxX = Math.max(...xs) + NODE_W + 160;
     const minY = Math.min(...ys) - 120;
     const maxY = Math.max(...ys) + NODE_H + 120;
-    return heatmapSignalSamples(nodes, rooms, barriers, { minX, maxX, minY, maxY }, 32);
-  }, [heatmapMode, nodes, rooms, barriers]);
+    return heatmapSignalSamples(interactiveNodes, rooms, barriers, { minX, maxX, minY, maxY }, 32);
+  }, [heatmapMode, interactiveNodes, rooms, barriers]);
 
   const linkBwRange = useMemo(() => {
     const mbs = links.map((l) => Number(l.bandwidthMbps)).filter((n) => Number.isFinite(n) && n > 0);
@@ -230,14 +317,50 @@ export default function TopologyCanvas({
   }, [nodes, links, barriers]);
 
   const coChannelOverlay = useMemo(
-    () => (heatmapMode === 'signal' ? getCoChannelApPairs(nodes) : []),
-    [heatmapMode, nodes]
+    () => (heatmapMode === 'signal' ? getCoChannelApPairs(interactiveNodes) : []),
+    [heatmapMode, interactiveNodes]
   );
 
   const unprotectedWanLinkSet = useMemo(
     () => new Set(smartSnapshot?.unprotectedWanLinkIds || []),
     [smartSnapshot?.unprotectedWanLinkIds]
   );
+  const busBarriers = useMemo(
+    () => (barriers || []).filter((b) => b.environmentKind === 'bus'),
+    [barriers]
+  );
+  const busConnectionCount = useMemo(() => {
+    const m = new Map();
+    (links || []).forEach((l) => {
+      if (!l.busId) return;
+      m.set(l.busId, (m.get(l.busId) || 0) + 1);
+    });
+    return m;
+  }, [links]);
+
+  const busUsedPortIndexes = useMemo(() => {
+    const m = new Map();
+    (links || []).forEach((l) => {
+      if (!l.busId || !Number.isInteger(l.busPortIndex)) return;
+      if (!m.has(l.busId)) m.set(l.busId, new Set());
+      m.get(l.busId).add(l.busPortIndex);
+    });
+    return m;
+  }, [links]);
+
+  const getNearestAvailableBusPort = useCallback((bus, px, py) => {
+    const portCount = getBusPortCount(bus);
+    const used = busUsedPortIndexes.get(bus.id) || new Set();
+    let best = null;
+    for (let i = 0; i < portCount; i += 1) {
+      if (used.has(i)) continue;
+      const point = getBusPortPoint(bus, i);
+      const dist = Math.hypot(px - point.x, py - point.y);
+      if (!best || dist < best.dist) best = { index: i, point, dist };
+    }
+    return best;
+  }, [busUsedPortIndexes]);
+  const selectedIdSet = useMemo(() => new Set(selectedIds || []), [selectedIds]);
 
   const badgeStyle = (tone) => {
     const map = {
@@ -257,6 +380,45 @@ export default function TopologyCanvas({
     if (e.button === 1) { e.preventDefault(); setIsPanning(true); setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y }); return; }
     if (e.button !== 0) return;
     const { x, y } = svgToCanvas(e.clientX, e.clientY);
+    const hitExistingEnvironment = () => {
+      const hitBarrier = (barriers || []).find((b) => {
+        const lx1 = b.x1 ?? b.x;
+        const ly1 = b.y1 ?? b.y;
+        const lx2 = b.x2 ?? b.x + (b.dx || 0);
+        const ly2 = b.y2 ?? b.y + (b.dy || 0);
+        return pointToSegmentDist(x, y, lx1, ly1, lx2, ly2) < 14;
+      });
+      if (hitBarrier) return hitBarrier.id;
+      const hitVz = (vlanZones || []).find((z) => x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h);
+      if (hitVz) return hitVz.id;
+      const hitPz = (powerZones || []).find((z) => x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h);
+      if (hitPz) return hitPz.id;
+      const hitRoom = rooms.find((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
+      if (hitRoom) return hitRoom.id;
+      return null;
+    };
+
+    if (
+      mode === 'room' ||
+      mode === 'barrier' ||
+      mode === 'bus' ||
+      mode === 'noise' ||
+      mode === 'conduit' ||
+      mode === 'door' ||
+      mode === 'window' ||
+      mode === 'obstacle' ||
+      mode === 'vlanzone' ||
+      mode === 'powerzone'
+    ) {
+      const hitId = hitExistingEnvironment();
+      if (hitId) {
+        setSelectedId(hitId);
+        onMultiSelect && onMultiSelect([]);
+        setMode && setMode('select');
+        return;
+      }
+    }
+
     if (mode === 'pan') { setIsPanning(true); setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y }); return; }
     if (mode === 'place' && placementPattern) {
       onPatternAdd && onPatternAdd(placementPattern, x, y);
@@ -269,14 +431,14 @@ export default function TopologyCanvas({
       return;
     }
     if (mode === 'room') { setDrawingRoom({ x, y, w: 0, h: 0 }); return; }
-    if (mode === 'barrier' || mode === 'noise' || mode === 'conduit' || mode === 'door' || mode === 'window' || mode === 'obstacle') {
+    if (mode === 'barrier' || mode === 'bus' || mode === 'noise' || mode === 'conduit' || mode === 'door' || mode === 'window' || mode === 'obstacle') {
       setDrawingBarrier({ x1: x, y1: y, x2: x, y2: y });
       return;
     }
     if (mode === 'vlanzone') { setDrawingVlanZone({ x, y, w: 0, h: 0 }); return; }
     if (mode === 'powerzone') { setDrawingPowerZone({ x, y, w: 0, h: 0 }); return; }
     if (mode === 'select' || mode === 'connect') {
-      const clicked = nodes.find(n => x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H);
+      const clicked = interactiveNodes.find(n => x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H);
       if (clicked) {
         if (mode === 'connect') {
           if (!connectingFrom) { setConnectingFrom(clicked.id); }
@@ -290,18 +452,18 @@ export default function TopologyCanvas({
           ? [...selectedIds]
           : [clicked.id];
         const seedGroups = new Set(
-          nodes.filter((n) => dragIds.includes(n.id)).map((n) => n.groupId).filter(Boolean)
+          interactiveNodes.filter((n) => dragIds.includes(n.id)).map((n) => n.groupId).filter(Boolean)
         );
         if (seedGroups.size) {
           dragIds = [
             ...new Set([
               ...dragIds,
-              ...nodes.filter((n) => n.groupId && seedGroups.has(n.groupId)).map((n) => n.id),
+              ...interactiveNodes.filter((n) => n.groupId && seedGroups.has(n.groupId)).map((n) => n.id),
             ]),
           ];
         }
         const origins = Object.fromEntries(
-          nodes
+          interactiveNodes
             .filter(node => dragIds.includes(node.id))
             .map(node => [node.id, { x: node.x, y: node.y }])
         );
@@ -311,6 +473,21 @@ export default function TopologyCanvas({
         setDragging({ ids: dragIds, startX: e.clientX, startY: e.clientY, origins });
       } else {
         if (mode === 'connect' && connectingFrom) {
+          const hitBus = (barriers || []).find((b) => {
+            if (b.environmentKind !== 'bus') return false;
+            const lx1 = b.x1 ?? b.x;
+            const ly1 = b.y1 ?? b.y;
+            const lx2 = b.x2 ?? b.x + (b.dx || 0);
+            const ly2 = b.y2 ?? b.y + (b.dy || 0);
+            return pointToSegmentDist(x, y, lx1, ly1, lx2, ly2) < 14;
+          });
+          if (hitBus) {
+            const nearestPort = getNearestAvailableBusPort(hitBus, x, y);
+            if (!nearestPort) return;
+            onConnectNodeToBus && onConnectNodeToBus(connectingFrom, hitBus.id, nearestPort.point);
+            setConnectingFrom(null);
+            return;
+          }
           setConnectingFrom(null);
           return;
         }
@@ -341,6 +518,10 @@ export default function TopologyCanvas({
         }
         const clickedRoom = rooms.find(r => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
         if (clickedRoom && mode === 'select') {
+          const containedNodes = nodes.filter((node) => roomContainsNode(clickedRoom, node));
+          const nodeOrigins = Object.fromEntries(
+            containedNodes.map((node) => [node.id, { x: node.x, y: node.y }])
+          );
           setSelectedId(clickedRoom.id);
           onMultiSelect && onMultiSelect([]);
           roomMoveHistoryPushedRef.current = false;
@@ -350,6 +531,8 @@ export default function TopologyCanvas({
             origY: clickedRoom.y,
             startClientX: e.clientX,
             startClientY: e.clientY,
+            nodeIds: containedNodes.map((node) => node.id),
+            nodeOrigins,
           });
         } else {
           setSelectedId(null);
@@ -384,6 +567,10 @@ export default function TopologyCanvas({
         onBeforeChange && onBeforeChange();
       }
       onRoomMove && onRoomMove(draggingRoom.id, draggingRoom.origX + dx, draggingRoom.origY + dy);
+      draggingRoom.nodeIds?.forEach((id) => {
+        const origin = draggingRoom.nodeOrigins?.[id];
+        if (origin) onNodeMove && onNodeMove(id, origin.x + dx, origin.y + dy);
+      });
       return;
     }
     if (dragging) {
@@ -402,7 +589,7 @@ export default function TopologyCanvas({
       const rawPx = originP.x + dx;
       const rawPy = originP.y + dy;
       const exclude = new Set(dragging.ids);
-      const snap = snapBoxToPeers(rawPx, rawPy, nodes, exclude, NODE_W, NODE_H);
+      const snap = snapBoxToPeers(rawPx, rawPy, interactiveNodes, exclude, NODE_W, NODE_H);
       const sx = snap.nx - (originP.x + dx);
       const sy = snap.ny - (originP.y + dy);
       setAlignmentGuides(snap.gx != null || snap.gy != null ? { gx: snap.gx, gy: snap.gy } : null);
@@ -410,6 +597,37 @@ export default function TopologyCanvas({
         const origin = dragging.origins[id];
         if (origin) onNodeMove(id, origin.x + dx + sx, origin.y + dy + sy);
       });
+      if (dragging.ids.length === 1 && busBarriers.length) {
+        const dragId = dragging.ids[0];
+        const dragNode = interactiveNodes.find((n) => n.id === dragId);
+        const origin = dragging.origins[dragId];
+        if (dragNode && origin) {
+          const px = origin.x + dx + sx;
+          const py = origin.y + dy + sy;
+          const cx = px + NODE_W / 2;
+          const cy = py + NODE_H / 2;
+          const nearest = busBarriers.reduce((best, b) => {
+            const nearestPort = getNearestAvailableBusPort(b, cx, cy);
+            if (!nearestPort) return best;
+            if (!best || nearestPort.dist < best.dist) {
+              return { busId: b.id, dist: nearestPort.dist, anchor: nearestPort.point };
+            }
+            return best;
+          }, null);
+          const alreadyConnected = links.some(
+            (l) => l.busId && l.busId === nearest?.busId && (l.source === dragId || l.target === dragId),
+          );
+          if (nearest && nearest.dist <= AUTO_BUS_ATTACH_PX && !alreadyConnected) {
+            setBusAttachHint({ nodeId: dragId, busId: nearest.busId, anchor: nearest.anchor });
+          } else {
+            setBusAttachHint(null);
+          }
+        } else {
+          setBusAttachHint(null);
+        }
+      } else {
+        setBusAttachHint(null);
+      }
       return;
     }
     if (isPanning) { setPan({ x: e.clientX - panStart.x, y: e.clientY - panStart.y }); return; }
@@ -435,21 +653,45 @@ export default function TopologyCanvas({
       return;
     }
     if (dragging) {
+      if (busAttachHint && dragging.ids.length === 1 && busAttachHint.nodeId === dragging.ids[0]) {
+        onConnectNodeToBus && onConnectNodeToBus(busAttachHint.nodeId, busAttachHint.busId, busAttachHint.anchor);
+      }
       setDragging(null);
       setAlignmentGuides(null);
+      setBusAttachHint(null);
       return;
     }
     if (isPanning) { setIsPanning(false); return; }
     if (selectionRect) {
       const { x, y, w, h } = selectionRect;
       if (w > 8 || h > 8) {
-        const selected = nodes.filter(n =>
-          n.x + NODE_W > x && n.x < x + w && n.y + NODE_H > y && n.y < y + h
-        ).map(n => n.id);
+        const nodeIds = interactiveNodes
+          .filter(n => n.x + NODE_W > x && n.x < x + w && n.y + NODE_H > y && n.y < y + h)
+          .map((n) => n.id);
+        const roomIds = rooms
+          .filter(
+            (r) =>
+              r.x + r.w > x &&
+              r.x < x + w &&
+              r.y + r.h > y &&
+              r.y < y + h,
+          )
+          .map((r) => r.id);
+        const barrierIds = (barriers || []).filter((b) => {
+          const lx1 = b.x1 ?? b.x;
+          const ly1 = b.y1 ?? b.y;
+          const lx2 = b.x2 ?? b.x + (b.dx || 0);
+          const ly2 = b.y2 ?? b.y + (b.dy || 0);
+          return segmentIntersectsRect(lx1, ly1, lx2, ly2, x, y, w, h);
+        }).map((b) => b.id);
+        /** Mixed selection — parents store node + room/barrier IDs in selectedIds together */
+        const selected = [...nodeIds, ...roomIds, ...barrierIds];
         onMultiSelect && onMultiSelect(selected);
         if (selected.length === 1) setSelectedId(selected[0]);
+        else if (selected.length > 1) setSelectedId(null);
       }
       setSelectionRect(null);
+      setBusAttachHint(null);
       return;
     }
     if (drawingRoom && mode === 'room') {
@@ -459,12 +701,23 @@ export default function TopologyCanvas({
       setDrawingRoom(null);
       return;
     }
-    if (drawingBarrier && (mode === 'barrier' || mode === 'noise' || mode === 'conduit' || mode === 'door' || mode === 'window' || mode === 'obstacle')) {
+    if (drawingBarrier && (mode === 'barrier' || mode === 'bus' || mode === 'noise' || mode === 'conduit' || mode === 'door' || mode === 'window' || mode === 'obstacle')) {
       const { x1, y1, x2, y2 } = drawingBarrier;
       const len = Math.hypot(x2 - x1, y2 - y1);
       if (len > 15 && onBarrierAdd) {
         onBeforeChange && onBeforeChange();
-        if (mode === 'noise') {
+        if (mode === 'bus') {
+          onBarrierAdd({
+            shape: 'line', x1, y1, x2, y2,
+            barrierType: 'metal',
+            thickness: 'medium',
+            portCount: 8,
+            blocksWifi: false,
+            blocksCablePath: false,
+            environmentKind: 'bus',
+            label: 'Bus backbone',
+          });
+        } else if (mode === 'noise') {
           onBarrierAdd({
             shape: 'line', x1, y1, x2, y2,
             barrierType: 'drywall',
@@ -523,13 +776,14 @@ export default function TopologyCanvas({
             barrierType: 'concrete',
             thickness: 'medium',
             blocksWifi: true,
-            blocksCablePath: false,
+            blocksCablePath: true,
             environmentKind: 'wall',
             label: 'Barrier',
           });
         }
       }
       setDrawingBarrier(null);
+      setBusAttachHint(null);
       return;
     }
     if (drawingVlanZone && mode === 'vlanzone') {
@@ -544,7 +798,7 @@ export default function TopologyCanvas({
           w: Math.abs(w),
           h: Math.abs(h),
           vlanName: vlans[0]?.name || 'VLAN10',
-          label: vlans[0] ? `${vlans[0].name} overlay` : 'VLAN overlay',
+          label: vlans[0] ? `${vlans[0].name} room overlay` : 'Room overlay',
           color: (vlans[0]?.color || '#3b82f6') + '22',
         });
       }
@@ -616,12 +870,12 @@ export default function TopologyCanvas({
     if (touches.length === 1) {
       const t = touches[0];
       const { x, y } = svgToCanvas(t.clientX, t.clientY);
-      const node = nodes.find(n => x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H);
+      const node = interactiveNodes.find(n => x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H);
       if (node && mode === 'select') {
         let dragIds = selectedIds?.includes(node.id) && selectedIds.length > 1
           ? [...selectedIds] : [node.id];
         const origins = Object.fromEntries(
-          nodes.filter(n => dragIds.includes(n.id)).map(n => [n.id, { x: n.x, y: n.y }])
+          interactiveNodes.filter(n => dragIds.includes(n.id)).map(n => [n.id, { x: n.x, y: n.y }])
         );
         onBeforeChange && onBeforeChange();
         setSelectedId(dragIds.length === 1 ? node.id : null);
@@ -671,7 +925,7 @@ export default function TopologyCanvas({
           const rawPx = originP.x + dx;
           const rawPy = originP.y + dy;
           const exclude = new Set(drag.ids);
-          const snap = snapBoxToPeers(rawPx, rawPy, nodes, exclude, NODE_W, NODE_H);
+          const snap = snapBoxToPeers(rawPx, rawPy, interactiveNodes, exclude, NODE_W, NODE_H);
           const sx = snap.nx - rawPx;
           const sy = snap.ny - rawPy;
           setAlignmentGuides(snap.gx != null || snap.gy != null ? { gx: snap.gx, gy: snap.gy } : null);
@@ -764,7 +1018,7 @@ export default function TopologyCanvas({
   const handleContextMenu = (e) => {
     e.preventDefault();
     const { x, y } = svgToCanvas(e.clientX, e.clientY);
-    const node = nodes.find(n => x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H);
+    const node = interactiveNodes.find(n => x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H);
     if (node) { onContextMenuRequest && onContextMenuRequest(e.clientX, e.clientY, { type: 'node', id: node.id, item: node }); return; }
     // Check links (approximate hit test on midpoint)
     for (const link of links) {
@@ -801,7 +1055,7 @@ export default function TopologyCanvas({
   const handleDoubleClick = (e) => {
     if (mode !== 'select') return;
     const { x, y } = svgToCanvas(e.clientX, e.clientY);
-    const clickedNode = nodes.find(n => x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H);
+    const clickedNode = interactiveNodes.find(n => x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H);
     const clickedRoom = rooms.find(r => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
     if (clickedNode || clickedRoom) return;
     onNodeAdd && onNodeAdd('switch', x - NODE_W / 2, y - NODE_H / 2);
@@ -812,20 +1066,18 @@ export default function TopologyCanvas({
     if (mode === 'place') return 'mode-place';
     if (mode === 'connect') return 'mode-connect';
     if (mode === 'room') return 'mode-room';
-    if (mode === 'barrier' || mode === 'noise' || mode === 'conduit' || mode === 'door' || mode === 'window' || mode === 'obstacle') return 'mode-room';
+    if (mode === 'barrier' || mode === 'bus' || mode === 'noise' || mode === 'conduit' || mode === 'door' || mode === 'window' || mode === 'obstacle') return 'mode-room';
     if (mode === 'vlanzone' || mode === 'powerzone') return 'mode-room';
     return '';
   };
 
   const renderBarrier = (b) => {
-    const lx1 = b.x1 ?? b.x;
-    const ly1 = b.y1 ?? b.y;
-    const lx2 = b.x2 ?? b.x + (b.dx || 0);
-    const ly2 = b.y2 ?? b.y + (b.dy || 0);
-    const isSel = selectedId === b.id;
+    const { x1: lx1, y1: ly1, x2: lx2, y2: ly2 } = getBusEndpoints(b);
+    const isSel = selectedId === b.id || selectedIdSet.has(b.id);
     const env = b.environmentKind;
     const stroke =
-      env === 'noise' ? '#fb923c'
+      env === 'bus' ? '#60a5fa'
+        : env === 'noise' ? '#fb923c'
         : env === 'conduit' ? '#c084fc'
           : env === 'door' ? '#fcd34d'
             : env === 'window' ? '#38bdf8'
@@ -835,12 +1087,90 @@ export default function TopologyCanvas({
                     : b.barrierType === 'glass' ? '#7dd3fc'
                       : '#78716c';
     const dash =
-      env === 'noise' ? '5 4'
+      env === 'bus' ? '3 3'
+        : env === 'noise' ? '5 4'
         : env === 'conduit' ? '3 4'
           : env === 'door' ? '2 6'
             : env === 'window' ? '4 3'
               : env === 'obstacle' ? '6 2'
                 : undefined;
+    if (env === 'bus') {
+      const portCount = getBusPortCount(b);
+      const usedCount = busConnectionCount.get(b.id) || 0;
+      const backbonePath = `M ${lx1} ${ly1} L ${lx2} ${ly2}`;
+      return (
+        <g key={b.id}>
+          <line
+            x1={lx1}
+            y1={ly1}
+            x2={lx2}
+            y2={ly2}
+            stroke="rgba(226,232,240,0.96)"
+            strokeWidth={isSel ? 14 : 12}
+            strokeLinecap="round"
+            style={{ cursor: mode === 'select' ? 'pointer' : undefined }}
+            onMouseDown={(e) => {
+              if (mode !== 'select') return;
+              e.stopPropagation();
+              setSelectedId(b.id);
+              onMultiSelect && onMultiSelect([]);
+            }}
+          />
+          <line
+            x1={lx1}
+            y1={ly1}
+            x2={lx2}
+            y2={ly2}
+            stroke="rgba(148,163,184,0.96)"
+            strokeWidth={isSel ? 8 : 6.5}
+            strokeLinecap="round"
+            opacity={0.96}
+            style={{ pointerEvents: 'none' }}
+          />
+          <circle cx={lx1} cy={ly1} r={isSel ? 5 : 4} fill="#f8fafc" stroke="rgba(148,163,184,0.95)" strokeWidth={1} style={{ pointerEvents: 'none' }} />
+          <circle cx={lx2} cy={ly2} r={isSel ? 5 : 4} fill="#f8fafc" stroke="rgba(148,163,184,0.95)" strokeWidth={1} style={{ pointerEvents: 'none' }} />
+          {Array.from({ length: portCount }, (_, i) => {
+            const p = getBusPortPoint(b, i);
+            const used = (busUsedPortIndexes.get(b.id) || new Set()).has(i);
+            return (
+              <circle
+                key={`${b.id}-p-${i}`}
+                cx={p.x}
+                cy={p.y}
+                r={2.6}
+                fill={used ? '#67e8f9' : '#e2e8f0'}
+                stroke="rgba(100,116,139,0.8)"
+                strokeWidth={0.8}
+                style={{ pointerEvents: 'none' }}
+              />
+            );
+          })}
+          {(isSel || usedCount > 0) && (
+            <text
+              x={(lx1 + lx2) / 2}
+              y={(ly1 + ly2) / 2 - 14}
+              textAnchor="middle"
+              fontSize={8}
+              fill="rgba(226,232,240,0.9)"
+              fontFamily="JetBrains Mono, monospace"
+              style={{ pointerEvents: 'none' }}
+            >
+              {`${usedCount}/${portCount} ports`}
+            </text>
+          )}
+          {usedCount > 0 && (
+            <>
+              <circle r={2.4} fill="#67e8f9" opacity={0.95} style={{ pointerEvents: 'none' }}>
+                <animateMotion dur="2.6s" repeatCount="indefinite" path={backbonePath} rotate="auto" />
+              </circle>
+              <circle r={2.1} fill="#bae6fd" opacity={0.8} style={{ pointerEvents: 'none' }}>
+                <animateMotion dur="3.4s" repeatCount="indefinite" path={backbonePath} rotate="auto" />
+              </circle>
+            </>
+          )}
+        </g>
+      );
+    }
     return (
       <g key={b.id}>
         {env === 'conduit' && (
@@ -857,10 +1187,10 @@ export default function TopologyCanvas({
         <line
           x1={lx1} y1={ly1} x2={lx2} y2={ly2}
           stroke={stroke}
-          strokeWidth={isSel ? 5 : 3}
+          strokeWidth={env === 'bus' ? (isSel ? 5.5 : 4) : (isSel ? 5 : 3)}
           strokeLinecap="round"
           strokeDasharray={dash}
-          opacity={0.9}
+          opacity={env === 'bus' ? 0.95 : 0.9}
           style={{ cursor: mode === 'select' ? 'pointer' : undefined }}
           onMouseDown={(e) => {
             if (mode !== 'select') return;
@@ -877,7 +1207,7 @@ export default function TopologyCanvas({
   };
 
   const renderPowerZone = (z) => {
-    const isSel = selectedId === z.id;
+    const isSel = selectedId === z.id || selectedIdSet.has(z.id);
     return (
       <rect
         key={z.id}
@@ -901,7 +1231,7 @@ export default function TopologyCanvas({
   };
 
   const renderVlanZone = (z) => {
-    const isSel = selectedId === z.id;
+    const isSel = selectedId === z.id || selectedIdSet.has(z.id);
     return (
       <rect
         key={z.id}
@@ -1042,6 +1372,68 @@ export default function TopologyCanvas({
   };
 
   const renderLink = (link) => {
+    if (link.busId) {
+      const src = nodes.find((n) => n.id === link.source);
+      const tgt = nodes.find((n) => n.id === link.target);
+      if (!src || !tgt) return null;
+      const srcIsAnchor = !!src.isBusAnchor;
+      const tgtIsAnchor = !!tgt.isBusAnchor;
+      const device = srcIsAnchor ? tgt : src;
+      const anchor = srcIsAnchor ? src : tgt;
+      const anchorCx = anchor.x + NODE_W / 2;
+      const anchorCy = anchor.y + NODE_H / 2;
+      const p = getEdgePoint(device, anchorCx, anchorCy);
+      const isSelected = selectedId === link.id;
+      const isHovered = hoverLink === link.id;
+      const stroke = isSelected ? TC.primary : '#93c5fd';
+      const tapPath = `M ${p.x} ${p.y} L ${anchorCx} ${anchorCy}`;
+      return (
+        <g key={link.id} style={{ transition: 'opacity 0.2s' }}>
+          <line
+            x1={p.x}
+            y1={p.y}
+            x2={anchorCx}
+            y2={anchorCy}
+            stroke="transparent"
+            strokeWidth={12}
+            onClick={() => setSelectedId(link.id)}
+            onContextMenu={(e) => { e.preventDefault(); onContextMenuRequest && onContextMenuRequest(e.clientX, e.clientY, { type: 'link', id: link.id, item: link }); }}
+            onMouseEnter={(e) => {
+              setHoverLink(link.id);
+              setTooltip({ x: e.clientX, y: e.clientY, link });
+            }}
+            onMouseMove={(e) => {
+              setHoverLink(link.id);
+              setTooltip({ x: e.clientX, y: e.clientY, link });
+            }}
+            onMouseLeave={() => { setHoverLink(null); setTooltip(null); }}
+            style={{ cursor: 'pointer' }}
+          />
+          <line
+            x1={p.x}
+            y1={p.y}
+            x2={anchorCx}
+            y2={anchorCy}
+            stroke={stroke}
+            strokeWidth={isSelected ? 2.6 : isHovered ? 2.2 : 2}
+            opacity={isSelected ? 0.95 : 0.9}
+            style={{ pointerEvents: 'none' }}
+          />
+          <circle r={2.2} fill="#67e8f9" opacity={0.95} style={{ pointerEvents: 'none' }}>
+            <animateMotion dur="1.8s" repeatCount="indefinite" path={tapPath} rotate="auto" />
+          </circle>
+          <circle r={1.8} fill="#bae6fd" opacity={0.75} style={{ pointerEvents: 'none' }}>
+            <animateMotion dur="2.4s" repeatCount="indefinite" path={tapPath} rotate="auto" />
+          </circle>
+          {(isSelected || isHovered) && (
+            <>
+              <circle cx={p.x} cy={p.y} r={2.4} fill={stroke} opacity={0.9} style={{ pointerEvents: 'none' }} />
+              <circle cx={anchorCx} cy={anchorCy} r={2.4} fill={stroke} opacity={0.9} style={{ pointerEvents: 'none' }} />
+            </>
+          )}
+        </g>
+      );
+    }
     const lat = redundantLateralPx.get(link.id) || 0;
     const pts = linkEndpointsForRender(nodes, link, lat);
     if (!pts) return null;
@@ -1173,8 +1565,12 @@ export default function TopologyCanvas({
   };
 
   const renderRoom = (room) => {
-    const isSelected = selectedId === room.id;
+    const isSelected = selectedId === room.id || selectedIdSet.has(room.id);
     const rm = mergeRoomDefaults(room);
+    const insideCount = nodes.filter((node) => roomContainsNode(room, node)).length;
+    const roomChipLabel = insideCount > 0 ? `${room.label} (${insideCount})` : room.label;
+    const roomChipText = roomChipLabel.length > 24 ? `${roomChipLabel.slice(0, 23)}…` : roomChipLabel;
+    const roomChipWidth = Math.max(56, roomChipText.length * 5.4 + 16);
     const complianceFill = showComplianceView && {
       public: 'rgba(34,197,94,0.07)',
       staff: 'rgba(59,130,246,0.09)',
@@ -1202,12 +1598,24 @@ export default function TopologyCanvas({
           stroke={isSelected ? TC.primaryStr65 : TC.borderMuted}
           strokeWidth={isSelected ? 1.5 : 1} strokeDasharray="8 5" rx={6}
           style={{ pointerEvents: mode === 'select' ? 'visible' : 'none', cursor: mode === 'select' ? 'grab' : undefined }}
+        >
+          <title>{insideCount > 0 ? `${room.label} — ${insideCount} device${insideCount === 1 ? '' : 's'}` : room.label}</title>
+        </rect>
+        <rect
+          x={room.x + 6}
+          y={room.y + 5}
+          width={Math.min(roomChipWidth, Math.max(44, room.w - 12))}
+          height={16}
+          rx={4}
+          fill={isSelected ? TC.primary12 : TC.popover75}
+          stroke={isSelected ? TC.primaryStr50 : 'transparent'}
+          strokeWidth={1}
+          style={{ pointerEvents: 'none' }}
         />
-        <rect x={room.x+6} y={room.y+5} width={room.label.length*5.5+12} height={14} rx={4} fill={TC.popover75} style={{ pointerEvents: 'none' }} />
         <text x={room.x+12} y={room.y+13} fontSize={9} fontWeight="500"
           fill={isSelected ? TC.primaryStr90 : TC.mutedFgSoft}
           fontFamily="Inter, sans-serif" dominantBaseline="middle"
-          style={{ pointerEvents: 'none' }}>{room.label}</text>
+          style={{ pointerEvents: 'none' }}>{roomChipText}</text>
         {/* Resize handles - only when selected */}
         {isSelected && handles.map(h => (
           <rect key={h.id}
@@ -1417,9 +1825,30 @@ export default function TopologyCanvas({
               </g>
             );
           })()}
+          {busAttachHint && (() => {
+            const n = interactiveNodes.find((node) => node.id === busAttachHint.nodeId);
+            if (!n) return null;
+            const anchor = busAttachHint.anchor;
+            const start = getEdgePoint(n, anchor.x, anchor.y);
+            return (
+              <g style={{ pointerEvents: 'none' }}>
+                <line
+                  x1={start.x}
+                  y1={start.y}
+                  x2={anchor.x}
+                  y2={anchor.y}
+                  stroke="#67e8f9"
+                  strokeWidth={2.2}
+                  strokeDasharray="6 4"
+                  opacity={0.95}
+                />
+                <circle cx={anchor.x} cy={anchor.y} r={4.5} fill="rgba(103,232,249,0.2)" stroke="#67e8f9" strokeWidth={1.3} />
+              </g>
+            );
+          })()}
 
           {/* Multi-select highlights */}
-          {selectedIds && selectedIds.length > 1 && nodes.filter(n => selectedIds.includes(n.id)).map(n => (
+          {selectedIds && selectedIds.length > 1 && interactiveNodes.filter(n => selectedIds.includes(n.id)).map(n => (
             <rect key={`sel-${n.id}`} x={n.x-4} y={n.y-4} width={NODE_W+8} height={NODE_H+8} rx={10}
               fill={TC.primary07} stroke={TC.primaryStr50} strokeWidth={1.5} strokeDasharray="5 3"
               style={{ pointerEvents: 'none' }} />
@@ -1451,7 +1880,7 @@ export default function TopologyCanvas({
               )}
             </g>
           )}
-          {nodes.map(renderNode)}
+          {interactiveNodes.map(renderNode)}
 
           {/* Selection rectangle */}
           {selectionRect && selectionRect.w > 4 && selectionRect.h > 4 && (
@@ -1472,12 +1901,13 @@ export default function TopologyCanvas({
               fill={TC.primary05} stroke={TC.primaryStr50} strokeWidth={1.5} strokeDasharray="8 4" rx={6}
             />
           )}
-          {drawingBarrier && (mode === 'barrier' || mode === 'noise' || mode === 'conduit' || mode === 'door' || mode === 'window' || mode === 'obstacle') && (
+          {drawingBarrier && (mode === 'barrier' || mode === 'bus' || mode === 'noise' || mode === 'conduit' || mode === 'door' || mode === 'window' || mode === 'obstacle') && (
             <line
               x1={drawingBarrier.x1} y1={drawingBarrier.y1}
               x2={drawingBarrier.x2} y2={drawingBarrier.y2}
               stroke={
-                mode === 'noise' ? '#fb923c'
+                mode === 'bus' ? '#60a5fa'
+                  : mode === 'noise' ? '#fb923c'
                   : mode === 'conduit' ? '#c084fc'
                     : mode === 'door' ? '#fcd34d'
                       : mode === 'window' ? '#38bdf8'
@@ -1486,7 +1916,8 @@ export default function TopologyCanvas({
               }
               strokeWidth={2}
               strokeDasharray={
-                mode === 'noise' ? '5 4'
+                mode === 'bus' ? '3 3'
+                  : mode === 'noise' ? '5 4'
                   : mode === 'conduit' ? '3 4'
                     : mode === 'door' ? '2 6'
                       : mode === 'window' ? '4 3'

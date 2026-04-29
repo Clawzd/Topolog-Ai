@@ -1,11 +1,11 @@
 import { LINK_TYPES } from '../../lib/topologyData';
 import { X } from 'lucide-react';
 
-export default function ConnectionTypePopup({ position, onSelect, onCancel }) {
+export default function ConnectionTypePopup({ onSelect, onCancel }) {
   return (
     <div
       className="fixed z-50 bg-card border border-border rounded-lg shadow-2xl shadow-black/50 p-2 w-52"
-      style={{ left: position.x, top: position.y, transform: 'translate(-50%, -110%)' }}
+      style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}
     >
       <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-border">
         <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Connection Type</span>

@@ -15,7 +15,7 @@ const DEVICE_GROUPS = {
 
 // Course / expo build keeps only the six devices that ICS 343 lectures cover.
 const EXPO_DEVICE_GROUPS = {
-  'Network': ['router', 'switch', 'firewall'],
+  'Network': ['cloud', 'router', 'switch', 'firewall'],
   'Wireless': ['ap'],
   'Hosts': ['server', 'pc'],
 };

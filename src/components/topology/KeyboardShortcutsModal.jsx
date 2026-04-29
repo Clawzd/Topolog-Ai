@@ -15,7 +15,7 @@ const ROWS = [
   ['Undo', 'Ctrl+Z'],
   ['Redo', 'Ctrl+Y or Ctrl+Shift+Z'],
   ['Save', 'Ctrl+S'],
-  ['Command palette', 'Ctrl+K (devices, rooms, templates)'],
+  ['Command palette', 'Ctrl+K (devices, rooms, examples)'],
   ['Theme', 'Light / Dark — top bar'],
   ['Shortcuts', '?'],
   ['Signal heatmap', 'Ctrl+H'],

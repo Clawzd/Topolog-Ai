@@ -4,7 +4,6 @@ import {
   FolderOpen,
   Eraser,
   LayoutTemplate,
-  Network,
   FileJson,
   FileImage,
   Wand2,
@@ -206,9 +205,11 @@ export default function TopBar({
           {(close) => (
             <>
               {!expoMode && (
-                <DropdownItem onClick={onTemplates} icon={LayoutTemplate} close={close}>Template Gallery</DropdownItem>
+          <DropdownItem onClick={onTemplates} icon={LayoutTemplate} close={close}>Example Gallery</DropdownItem>
               )}
-              <DropdownItem onClick={onVlanManager} icon={Network} close={close}>VLAN Manager</DropdownItem>
+              {!expoMode && (
+                <DropdownItem onClick={onVlanManager} icon={Settings2} close={close}>VLAN Manager</DropdownItem>
+              )}
               <DropdownItem onClick={onAutoLayout} icon={Wand2} close={close}>Auto Layout</DropdownItem>
               {!expoMode && (
                 <DropdownItem onClick={onValidate} icon={ShieldCheck} close={close}>Validate Network</DropdownItem>

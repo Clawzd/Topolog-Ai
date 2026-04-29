@@ -76,7 +76,7 @@ export default function ContextMenu({ x, y, target, onAction, onClose }) {
     );
     if (target?.type === 'vlanZone') return (
       <>
-        <Item icon={Trash2} label="Delete VLAN zone" action="delete" danger />
+        <Item icon={Trash2} label="Delete room overlay" action="delete" danger />
       </>
     );
     if (target?.type === 'powerZone') return (
@@ -113,7 +113,7 @@ export default function ContextMenu({ x, y, target, onAction, onClose }) {
               : target.type === 'link' ? 'Connection'
               : target.type === 'room' ? target.item?.label || 'Room'
               : target.type === 'barrier' ? target.item?.label || 'Barrier'
-              : target.type === 'vlanZone' ? target.item?.label || 'VLAN zone'
+              : target.type === 'vlanZone' ? target.item?.label || 'Room overlay'
               : target.type === 'powerZone' ? target.item?.label || 'Power zone'
               : 'Canvas'}
           </span>

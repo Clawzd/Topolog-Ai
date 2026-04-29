@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { DEVICE_TYPES, LINK_TYPES } from '../../lib/topologyData';
 import { Trash2, Network, Link2, Square, ChevronDown, BrickWall, Layers, Zap } from 'lucide-react';
 import { mergeRoomDefaults, mergeBarrierDefaults } from '../../lib/smartNetworkEngine';
@@ -67,7 +67,7 @@ function SelectField({ label, value, onChange, options }) {
   );
 }
 
-export default function PropertiesPanel({ selectedId, nodes, links, rooms, barriers = [], vlanZones = [], powerZones = [], vlans, onUpdate, onDelete, onSelectNode, deviceStates = null }) {
+export default function PropertiesPanel({ expoMode = false, selectedId, nodes, links, rooms, barriers = [], vlanZones = [], powerZones = [], vlans, onUpdate, onDelete, onSelectNode, deviceStates = null }) {
   const [form, setForm] = useState(/** @type {Record<string, any>} */ ({}));
 
   const selectedNode = nodes.find(n => n.id === selectedId);
@@ -102,7 +102,7 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
     vlanZone: <Layers className="w-3.5 h-3.5" />,
     powerZone: <Zap className="w-3.5 h-3.5" />,
   };
-  const typeLabel = { node: 'Device', link: 'Connection', room: 'Room', barrier: 'Barrier', vlanZone: 'VLAN zone', powerZone: 'Power zone' };
+  const typeLabel = { node: 'Device', link: 'Connection', room: 'Room', barrier: 'Barrier', vlanZone: 'Room overlay', powerZone: 'Power zone' };
 
   return (
     <div className="w-64 bg-card border-l border-border flex flex-col overflow-hidden slide-in-right">
@@ -137,7 +137,9 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
             <Section title="Identity">
               <Field label="Name / Label" value={form.label} onChange={v => change('label', v)} onBlur={save} placeholder="Device name" />
               <Field label="IP Address" value={form.ip} onChange={v => change('ip', v)} onBlur={save} placeholder="192.168.1.x" />
-              <Field label="Description" value={form.description} onChange={v => change('description', v)} onBlur={save} placeholder="Optional notes" />
+              {!expoMode && (
+                <Field label="Description" value={form.description} onChange={v => change('description', v)} onBlur={save} placeholder="Optional notes" />
+              )}
             </Section>
 
             <Section title="Classification">
@@ -147,24 +149,28 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
                 onChange={v => saveKey('type', v)}
                 options={Object.entries(DEVICE_TYPES).map(([v, d]) => ({ value: v, label: d.label }))}
               />
-              <SelectField
-                label="VLAN"
-                value={form.vlan}
-                onChange={v => saveKey('vlan', v || null)}
-                options={vlans.map(v => ({ value: v.name, label: `${v.name} - ${v.label}` }))}
-              />
-              <SelectField
-                label="Criticality"
-                value={form.criticality || 'normal'}
-                onChange={v => saveKey('criticality', v)}
-                options={[
-                  { value: 'low', label: 'Low' },
-                  { value: 'normal', label: 'Normal' },
-                  { value: 'high', label: 'High' },
-                  { value: 'critical', label: 'Critical' },
-                ]}
-              />
-              {(form.type === 'laptop' || form.type === 'pc' || form.type === 'tablet') && (
+              {!expoMode && (
+                <SelectField
+                  label="VLAN"
+                  value={form.vlan}
+                  onChange={v => saveKey('vlan', v || null)}
+                  options={vlans.map(v => ({ value: v.name, label: `${v.name} - ${v.label}` }))}
+                />
+              )}
+              {!expoMode && (
+                <SelectField
+                  label="Criticality"
+                  value={form.criticality || 'normal'}
+                  onChange={v => saveKey('criticality', v)}
+                  options={[
+                    { value: 'low', label: 'Low' },
+                    { value: 'normal', label: 'Normal' },
+                    { value: 'high', label: 'High' },
+                    { value: 'critical', label: 'Critical' },
+                  ]}
+                />
+              )}
+              {!expoMode && (form.type === 'laptop' || form.type === 'pc' || form.type === 'tablet') && (
                 <SelectField
                   label="Connection mode"
                   value={form.connectionMode || 'wifi'}
@@ -176,7 +182,7 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
                   ]}
                 />
               )}
-              {(form.type === 'laptop' ||
+              {!expoMode && (form.type === 'laptop' ||
                 form.type === 'tablet' ||
                 form.type === 'phone' ||
                 form.type === 'printer' ||
@@ -194,7 +200,7 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
               )}
             </Section>
 
-            {(form.type === 'ap' || form.type === 'router') && (
+            {!expoMode && (form.type === 'ap' || form.type === 'router') && (
               <Section title="Wireless (AP / router)" defaultOpen={false}>
                 <Field label="SSID" value={form.ssid} onChange={v => change('ssid', v)} onBlur={save} placeholder="Corporate" />
                 <SelectField
@@ -218,13 +224,10 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
                   onBlur={save}
                   placeholder="e.g. VLAN10, VLAN30 (empty = any SSID VLAN)"
                 />
-                <p className="text-[9px] text-muted-foreground leading-snug -mt-1">
-                  When set, wireless clients must use a listed VLAN name (same spelling as the VLAN picker) to pass validation.
-                </p>
               </Section>
             )}
 
-            {deviceStates?.[selectedId] && (
+            {!expoMode && deviceStates?.[selectedId] && (
               <Section title="Smart state" defaultOpen={false}>
                 <div className="text-[10px] text-muted-foreground space-y-1">
                   <div>Quality: <span className="font-mono text-foreground">{deviceStates[selectedId].quality}</span></div>
@@ -239,7 +242,7 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
               </Section>
             )}
 
-            {form.type === 'switch' && (
+            {!expoMode && form.type === 'switch' && (
               <Field
                 label="Port count (modeled)"
                 value={form.portCount ?? 24}
@@ -249,7 +252,7 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
               />
             )}
 
-            {(form.type === 'switch' || form.type === 'router') && (() => {
+            {!expoMode && (form.type === 'switch' || form.type === 'router') && (() => {
               const portCount =
                 form.type === 'switch'
                   ? Math.min(96, Math.max(4, Number.isFinite(Number(form.portCount)) ? Number(form.portCount) : 24))
@@ -289,12 +292,14 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
               );
             })()}
 
-            <Section title="Position" defaultOpen={false}>
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="X" value={Math.round(form.x)} onChange={v => change('x', parseFloat(v))} onBlur={save} type="number" />
-                <Field label="Y" value={Math.round(form.y)} onChange={v => change('y', parseFloat(v))} onBlur={save} type="number" />
-              </div>
-            </Section>
+            {!expoMode && (
+              <Section title="Position" defaultOpen={false}>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="X" value={Math.round(form.x)} onChange={v => change('x', parseFloat(v))} onBlur={save} type="number" />
+                  <Field label="Y" value={Math.round(form.y)} onChange={v => change('y', parseFloat(v))} onBlur={save} type="number" />
+                </div>
+              </Section>
+            )}
           </>
         )}
 
@@ -323,37 +328,47 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
 
             <Section title="Connection">
               <Field label="Label" value={form.label} onChange={v => change('label', v)} onBlur={save} placeholder="Optional label" />
-              <Field label="Bandwidth" value={form.bandwidth} onChange={v => change('bandwidth', v)} onBlur={save} placeholder="e.g. 1Gbps" />
-              <Field label="Bandwidth Mbps" value={form.bandwidthMbps} onChange={v => change('bandwidthMbps', Number(v))} onBlur={save} type="number" />
-              <Field label="Cable length (m)" value={form.cableLengthM} onChange={v => change('cableLengthM', Number(v))} onBlur={save} type="number" />
-              <Field label="Utilization %" value={form.utilizationPercent} onChange={v => change('utilizationPercent', Number(v))} onBlur={save} type="number" />
-              <SelectField
-                label="PoE"
-                value={form.poe || 'none'}
-                onChange={v => saveKey('poe', v)}
-                options={[
-                  { value: 'none', label: 'None' },
-                  { value: 'poe', label: 'PoE' },
-                  { value: 'poe+', label: 'PoE+' },
-                  { value: 'poe++', label: 'PoE++' },
-                ]}
-              />
-              <Field
-                label="Trunk VLANs (comma)"
-                value={form.trunkVlans}
-                onChange={v => change('trunkVlans', v)}
-                onBlur={save}
-                placeholder="e.g. VLAN10, VLAN20 (empty = any)"
-              />
-              <p className="text-[9px] text-muted-foreground leading-snug -mt-1">
-                When set, intelligence checks that device VLAN tags appear on this Ethernet/fiber hop toward the core.
-              </p>
               <SelectField
                 label="Link Type"
                 value={form.type}
-                onChange={v => saveKey('type', v)}
-                options={Object.entries(LINK_TYPES).map(([v, d]) => ({ value: v, label: `${d.label} (${d.speed})` }))}
+                onChange={v => saveKey('type', selectedLink?.busId && v !== 'ethernet' && v !== 'fiber' ? 'ethernet' : v)}
+                options={
+                  Object.entries(LINK_TYPES)
+                    .filter(([v]) => !selectedLink?.busId || v === 'ethernet' || v === 'fiber')
+                    .map(([v, d]) => ({ value: v, label: `${d.label} (${d.speed})` }))
+                }
               />
+              {selectedLink?.busId && (
+                <p className="text-[9px] text-muted-foreground -mt-1">
+                  Bus links are wired only: Ethernet or Fiber.
+                </p>
+              )}
+              {!expoMode && (
+                <>
+                  <Field label="Bandwidth" value={form.bandwidth} onChange={v => change('bandwidth', v)} onBlur={save} placeholder="e.g. 1Gbps" />
+                  <Field label="Bandwidth Mbps" value={form.bandwidthMbps} onChange={v => change('bandwidthMbps', Number(v))} onBlur={save} type="number" />
+                  <Field label="Cable length (m)" value={form.cableLengthM} onChange={v => change('cableLengthM', Number(v))} onBlur={save} type="number" />
+                  <Field label="Utilization %" value={form.utilizationPercent} onChange={v => change('utilizationPercent', Number(v))} onBlur={save} type="number" />
+                  <SelectField
+                    label="PoE"
+                    value={form.poe || 'none'}
+                    onChange={v => saveKey('poe', v)}
+                    options={[
+                      { value: 'none', label: 'None' },
+                      { value: 'poe', label: 'PoE' },
+                      { value: 'poe+', label: 'PoE+' },
+                      { value: 'poe++', label: 'PoE++' },
+                    ]}
+                  />
+                  <Field
+                    label="Trunk VLANs (comma)"
+                    value={form.trunkVlans}
+                    onChange={v => change('trunkVlans', v)}
+                    onBlur={save}
+                    placeholder="e.g. VLAN10, VLAN20 (empty = any)"
+                  />
+                </>
+              )}
             </Section>
           </>
         )}
@@ -407,7 +422,9 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
                   { value: 'critical', label: 'Critical' },
                 ]}
               />
-              <Field label="Required VLAN name" value={form.requiredVlan} onChange={v => change('requiredVlan', v)} onBlur={save} placeholder="VLAN10" />
+              {!expoMode && (
+                <Field label="Required VLAN name" value={form.requiredVlan} onChange={v => change('requiredVlan', v)} onBlur={save} placeholder="VLAN10" />
+              )}
               <Field label="Max wireless users" value={form.maxUsers} onChange={v => change('maxUsers', Number(v))} onBlur={save} type="number" />
               <SelectField
                 label="Wall material"
@@ -509,6 +526,32 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
           <>
             <Section title="Barrier">
               <Field label="Label" value={form.label} onChange={v => change('label', v)} onBlur={save} />
+              {form.environmentKind === 'bus' && (
+                <>
+                  {(() => {
+                    const usedPorts = (links || []).filter((l) => l.busId === form.id).length;
+                    const minAllowed = Math.max(2, usedPorts);
+                    const displayCount = Math.min(64, Math.max(minAllowed, Number.isFinite(Number(form.portCount)) ? Number(form.portCount) : 8));
+                    return (
+                      <>
+                  <Field
+                    label="Port count"
+                    value={form.portCount ?? displayCount}
+                    onChange={(v) => change('portCount', Number(v))}
+                    onBlur={() => {
+                      const sanitized = Math.min(64, Math.max(minAllowed, Number.isFinite(Number(form.portCount)) ? Number(form.portCount) : displayCount));
+                      saveKey('portCount', sanitized);
+                    }}
+                    type="number"
+                  />
+                  <p className="text-[9px] text-muted-foreground -mt-1">
+                    {usedPorts}/{displayCount} ports used
+                  </p>
+                      </>
+                    );
+                  })()}
+                </>
+              )}
               <SelectField
                 label="Material"
                 value={mergeBarrierDefaults(form).barrierType}
@@ -549,14 +592,16 @@ export default function PropertiesPanel({ selectedId, nodes, links, rooms, barri
 
         {type === 'vlanZone' && (
           <>
-            <Section title="VLAN overlay">
+            <Section title="Room overlay">
               <Field label="Label" value={form.label} onChange={v => change('label', v)} onBlur={save} />
-              <SelectField
-                label="VLAN"
-                value={form.vlanName}
-                onChange={v => saveKey('vlanName', v)}
-                options={vlans.map(v => ({ value: v.name, label: `${v.name} — ${v.label}` }))}
-              />
+              {!expoMode && (
+                <SelectField
+                  label="VLAN"
+                  value={form.vlanName}
+                  onChange={v => saveKey('vlanName', v)}
+                  options={vlans.map(v => ({ value: v.name, label: `${v.name} — ${v.label}` }))}
+                />
+              )}
               <Field label="Fill (rgba/hex)" value={form.color} onChange={v => change('color', v)} onBlur={save} />
             </Section>
           </>

@@ -65,13 +65,14 @@ export function generatePromptTopology(userPrompt) {
   const pid = patternIdFromPrompt(hint);
   if (pid) {
     const genId = { node: () => generateId('n'), link: () => generateId('l') };
-    const { nodes, links } = instantiateTopologyPattern(pid, 400, 300, genId);
+    const { nodes, links, barriers } = instantiateTopologyPattern(pid, 400, 300, genId);
     const meta = TOPOLOGY_PATTERNS.find((p) => p.id === pid);
     return {
       nodes,
       links,
       rooms: [],
       vlans: [],
+      barriers: barriers || [],
       summary: `${meta?.label || pid} topology for "${hint}". ${getScenarioNote(hint)}`,
     };
   }

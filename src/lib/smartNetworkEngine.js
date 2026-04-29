@@ -480,12 +480,23 @@ function txPowerRadiusMul(tx) {
   return 1;
 }
 
-function buildGraph(nodes, links, excludeNodeId, excludeLinkId) {
+function buildGraph(nodes, links, excludeNodeId, excludeLinkId, rawBarriers = []) {
   const adj = new Map(nodes.map(n => [n.id, []]));
   const activeNodes = new Set(nodes.filter(n => n.id !== excludeNodeId).map(n => n.id));
+  const nodeById = Object.fromEntries(nodes.map((n) => [n.id, n]));
   links.forEach(l => {
     if (l.id === excludeLinkId) return;
     if (!activeNodes.has(l.source) || !activeNodes.has(l.target)) return;
+    const lk = mergeLinkDefaults(l);
+    if ((lk.type === 'ethernet' || lk.type === 'fiber') && rawBarriers?.length) {
+      const src = nodeById[l.source];
+      const tgt = nodeById[l.target];
+      if (src && tgt) {
+        const p1 = nodeCenter(src);
+        const p2 = nodeCenter(tgt);
+        if (firstCableBlockingBarrier(rawBarriers, p1.x, p1.y, p2.x, p2.y)) return;
+      }
+    }
     adj.get(l.source).push(l.target);
     adj.get(l.target).push(l.source);
   });
@@ -508,24 +519,24 @@ function reachableFrom(startIds, adj, allowed = null) {
 }
 
 /** LAN / core graph: reachability from any gateway-class node (router, firewall, LB, cloud). */
-function nodesReachLan(nodes, links, excludeNodeId, excludeLinkId) {
-  const adj = buildGraph(nodes, links, excludeNodeId, excludeLinkId);
+function nodesReachLan(nodes, links, excludeNodeId, excludeLinkId, rawBarriers = []) {
+  const adj = buildGraph(nodes, links, excludeNodeId, excludeLinkId, rawBarriers);
   const seeds = nodes.filter((n) => GATEWAY_TYPES.has(n.type)).map((n) => n.id);
   if (!seeds.length) return new Set(nodes.map((n) => n.id));
   return reachableFrom(seeds, adj);
 }
 
 /** Outbound Internet modeled only from Cloud/ISP nodes. */
-function nodesReachWan(nodes, links, excludeNodeId, excludeLinkId) {
-  const adj = buildGraph(nodes, links, excludeNodeId, excludeLinkId);
+function nodesReachWan(nodes, links, excludeNodeId, excludeLinkId, rawBarriers = []) {
+  const adj = buildGraph(nodes, links, excludeNodeId, excludeLinkId, rawBarriers);
   const seeds = nodes.filter((n) => n.type === 'cloud').map((n) => n.id);
   if (!seeds.length) return new Set();
   return reachableFrom(seeds, adj);
 }
 
-function hasEthernetPathToGateway(nodeId, nodes, links, lanReach, excludeNodeId, excludeLinkId) {
+function hasEthernetPathToGateway(nodeId, nodes, links, lanReach, excludeNodeId, excludeLinkId, rawBarriers = []) {
   const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
-  const adj = buildGraph(nodes, links, excludeNodeId, excludeLinkId);
+  const adj = buildGraph(nodes, links, excludeNodeId, excludeLinkId, rawBarriers);
   const stack = [nodeId];
   const seen = new Set();
   while (stack.length) {
@@ -651,7 +662,7 @@ function linksAlongNodePath(links, path, excludeLinkId) {
 }
 
 /** Shortest path using only Ethernet/fiber edges to a WAN/core-type node in lanReach. */
-function wiredShortestPathToCore(nodes, links, lanReach, fromId, excludeNodeId, excludeLinkId) {
+function wiredShortestPathToCore(nodes, links, lanReach, fromId, excludeNodeId, excludeLinkId, rawBarriers = []) {
   const gatewayIds = new Set(
     nodes
       .filter((n) => n.id !== fromId && GATEWAY_TYPES.has(n.type) && lanReach.has(n.id))
@@ -666,6 +677,15 @@ function wiredShortestPathToCore(nodes, links, lanReach, fromId, excludeNodeId, 
     const lk = mergeLinkDefaults(l);
     if (lk.type !== 'ethernet' && lk.type !== 'fiber') return;
     if (!active.has(l.source) || !active.has(l.target)) return;
+    if (rawBarriers?.length) {
+      const src = nodes.find((n) => n.id === l.source);
+      const tgt = nodes.find((n) => n.id === l.target);
+      if (src && tgt) {
+        const p1 = nodeCenter(src);
+        const p2 = nodeCenter(tgt);
+        if (firstCableBlockingBarrier(rawBarriers, p1.x, p1.y, p2.x, p2.y)) return;
+      }
+    }
     adj.get(l.source).push(l.target);
     adj.get(l.target).push(l.source);
   });
@@ -719,8 +739,8 @@ export function computeSmartTopology({
   const findings = [];
   const deviceStates = {};
 
-  const lanReach = nodesReachLan(nodes, links, excludeNodeId, excludeLinkId);
-  const wanReach = nodesReachWan(nodes, links, excludeNodeId, excludeLinkId);
+  const lanReach = nodesReachLan(nodes, links, excludeNodeId, excludeLinkId, rawBarriers);
+  const wanReach = nodesReachWan(nodes, links, excludeNodeId, excludeLinkId, rawBarriers);
   const hasCloud = nodes.some((n) => n.type === 'cloud');
   const hasFw = nodes.some((n) => n.type === 'firewall');
   const unprotectedWanLinkIds = [];
@@ -795,8 +815,8 @@ export function computeSmartTopology({
     const cc = nodeCenter(client);
     const roomC = roomAtPoint(rooms, cc.x, cc.y);
 
-    if (hasEthernetPathToGateway(client.id, nodes, links, lanReach, excludeNodeId, excludeLinkId)) {
-      const gwPath = wiredShortestPathToCore(nodes, links, lanReach, client.id, excludeNodeId, excludeLinkId);
+    if (hasEthernetPathToGateway(client.id, nodes, links, lanReach, excludeNodeId, excludeLinkId, rawBarriers)) {
+      const gwPath = wiredShortestPathToCore(nodes, links, lanReach, client.id, excludeNodeId, excludeLinkId, rawBarriers);
       const hops = gwPath && gwPath.length > 1 ? gwPath.length - 1 : null;
       const hopLine =
         hops != null ? `${hops} wired hop${hops === 1 ? '' : 's'} to gateway.` : null;
@@ -1082,7 +1102,7 @@ export function computeSmartTopology({
     if (deviceStates[n.id]) return;
     if (n.type === 'ap' || n.type === 'patchpanel') return;
     if (lanReach.has(n.id)) {
-      const gwPath = wiredShortestPathToCore(nodes, links, lanReach, n.id, excludeNodeId, excludeLinkId);
+      const gwPath = wiredShortestPathToCore(nodes, links, lanReach, n.id, excludeNodeId, excludeLinkId, rawBarriers);
       const hops = gwPath && gwPath.length > 1 ? gwPath.length - 1 : null;
       const hopReason =
         hops != null
@@ -1132,7 +1152,7 @@ export function computeSmartTopology({
   // APs themselves
   aps.forEach(ap => {
     const gr = lanReach.has(ap.id);
-    const apGwPath = gr ? wiredShortestPathToCore(nodes, links, lanReach, ap.id, excludeNodeId, excludeLinkId) : null;
+    const apGwPath = gr ? wiredShortestPathToCore(nodes, links, lanReach, ap.id, excludeNodeId, excludeLinkId, rawBarriers) : null;
     const apHops = apGwPath && apGwPath.length > 1 ? apGwPath.length - 1 : null;
     deviceStates[ap.id] = {
       smartState: gr ? 'healthy' : 'isolated',
@@ -1374,7 +1394,7 @@ export function computeSmartTopology({
 
     const uplinkStart =
       wifiAirborne && st.apId ? st.apId : n.id;
-    const path = wiredShortestPathToCore(nodes, links, lanReach, uplinkStart, excludeNodeId, excludeLinkId);
+    const path = wiredShortestPathToCore(nodes, links, lanReach, uplinkStart, excludeNodeId, excludeLinkId, rawBarriers);
     if (!path || path.length < 2) return;
 
     const pathLinks = linksAlongNodePath(links, path, excludeLinkId);
@@ -2297,7 +2317,7 @@ export function computeSmartTopology({
     if (n.type === 'cloud' || n.type === 'patchpanel') return;
     if (!lanReach.has(n.id)) return;
     if (wanReach.has(n.id)) return;
-    if (st.smartState === 'isolated' || st.smartState === 'no_network') return;
+    if (st.smartState === 'isolated') return;
     if (st.smartState === 'power_missing') return;
     if ((st.reasons || []).some((x) => String(x).includes('outbound Internet'))) return;
     const sug = hasCloud
@@ -2306,10 +2326,14 @@ export function computeSmartTopology({
     deviceStates[n.id] = {
       ...st,
       smartState: 'no_internet',
-      badgeLabel: 'No Internet',
+      badgeLabel: 'Local only',
       badgeTone: 'slow',
       quality: Math.min(st.quality ?? 70, 55),
-      reasons: [...(st.reasons || []), wanHint],
+      reasons: [
+        ...(st.reasons || []),
+        'Connected on local network, but Internet/WAN path is not modeled.',
+        wanHint,
+      ],
       suggestions: [...(st.suggestions || []), sug],
     };
   });

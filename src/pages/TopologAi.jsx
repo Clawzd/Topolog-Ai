@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import TopBar from '../components/topology/TopBar';
 import Toolbar from '../components/topology/Toolbar';
 import LeftPanel from '../components/topology/LeftPanel';
@@ -11,9 +11,10 @@ import TemplateGallery from '../components/topology/TemplateGallery';
 import MiniMap from '../components/topology/MiniMap';
 import EmptyState from '../components/topology/EmptyState';
 import NetworkInsightsPanel from '../components/topology/NetworkInsightsPanel';
-import { DEVICE_TYPES, generateId, TEMPLATES } from '../lib/topologyData';
+import { DEVICE_TYPES, generateId, normalizeTopologyForExpo, TEMPLATES } from '../lib/topologyData';
 import { instantiateTopologyPattern, TOPOLOGY_PATTERNS } from '../lib/topologyPatterns';
 import { generatePromptTopology } from '../lib/promptTopologyGenerator';
+import { expandBusLinksForCanvas } from '../lib/busExpansion';
 import { ChevronLeft, ChevronRight, Box, Home, LayoutTemplate } from 'lucide-react';
 import ConnectionTypePopup from '../components/topology/ConnectionTypePopup';
 import ContextMenu from '../components/topology/ContextMenu';
@@ -43,8 +44,31 @@ const CANVAS_STORAGE_KEY = 'topologai_canvas';
 
 // Expo / Course build flag — set false to restore the full feature set.
 // When true, non-essential panels and advanced features are hidden so the
-// demo focuses on the AI prompt, the canvas, devices, VLAN, IP, and export.
+// demo focuses on the AI prompt, the canvas, devices, IP, and export.
 const EXPO_MODE = true;
+
+const adaptTopologyForCurrentMode = (topology) => (EXPO_MODE ? normalizeTopologyForExpo(topology) : topology);
+
+const getBusPortCount = (bus) => {
+  const raw = Number(bus?.portCount);
+  if (!Number.isFinite(raw)) return 8;
+  return Math.min(64, Math.max(2, Math.round(raw)));
+};
+
+const getBusEndpoints = (bus) => {
+  const x1 = bus.x1 ?? bus.x;
+  const y1 = bus.y1 ?? bus.y;
+  const x2 = bus.x2 ?? bus.x + (bus.dx || 0);
+  const y2 = bus.y2 ?? bus.y + (bus.dy || 0);
+  return { x1, y1, x2, y2 };
+};
+
+const getBusPortAnchor = (bus, index) => {
+  const { x1, y1, x2, y2 } = getBusEndpoints(bus);
+  const portCount = getBusPortCount(bus);
+  const t = portCount === 1 ? 0.5 : (index + 0.5) / portCount;
+  return { x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t };
+};
 
 export default function TopologAi() {
   const nodes = useTopologyCanvasStore((s) => s.nodes);
@@ -361,7 +385,7 @@ export default function TopologAi() {
     const encoded = window.location.hash.match(/topology=([^&]+)/)?.[1];
     if (!encoded) return;
     try {
-      const data = decodeShareState(encoded);
+      const data = adaptTopologyForCurrentMode(decodeShareState(encoded));
       setNodes(data.nodes || []);
       setLinks(data.links || []);
       setRooms(data.rooms || []);
@@ -405,9 +429,14 @@ export default function TopologAi() {
   const handleDuplicateSelection = useCallback(() => {
     const ids = selectedIds.length ? selectedIds : selectedId ? [selectedId] : [];
     if (!ids.length) return;
+    const nodesToDupe = nodes.filter((n) => ids.includes(n.id));
+    if (!nodesToDupe.length) {
+      showToast('Duplicate works for devices only', 'info');
+      return;
+    }
     pushHistory();
     setNodes((ns) => {
-      const dupes = ns.filter((n) => ids.includes(n.id)).map((n) => ({
+      const dupes = nodesToDupe.map((n) => ({
         ...n,
         id: generateId('n'),
         x: n.x + 28,
@@ -417,59 +446,76 @@ export default function TopologAi() {
       return [...ns, ...dupes];
     });
     showToast('Selection duplicated', 'success');
-  }, [selectedIds, selectedId, pushHistory, setNodes]);
+  }, [selectedIds, selectedId, pushHistory, setNodes, nodes]);
 
   // Load topology from AI
   const loadTopology = (topology, prompt, isRefinement = false) => {
+    const nextTopology = adaptTopologyForCurrentMode(topology);
     pushHistory();
     if (isRefinement) {
       const existingIds = new Set(nodes.map(x => x.id));
+      const existingBarrierIds = new Set(barriers.map((x) => x.id));
       const idMap = {};
-      const newNodes = topology.nodes.map(node => {
-        const nextId = existingIds.has(node.id) ? generateId('n') : node.id;
+      const barrierIdMap = {};
+      const newBarriers = (nextTopology.barriers || []).map(br => {
+        const nextId = existingBarrierIds.has(br.id) ? generateId('b') : br.id;
+        barrierIdMap[br.id] = nextId;
+        return { ...br, id: nextId };
+      });
+      const newNodes = nextTopology.nodes.map(node => {
+        const nextId = existingIds.has(node.id) ? generateId(node.isBusAnchor ? 'bn' : 'n') : node.id;
         idMap[node.id] = nextId;
-        return {
+        const remapped = {
           ...node,
           id: nextId,
           x: node.x + 50,
           y: node.y + 50,
         };
+        if (node.busId && barrierIdMap[node.busId]) remapped.busId = barrierIdMap[node.busId];
+        return remapped;
       });
 
       setNodes(n => {
         return [...n, ...newNodes];
       });
-      setLinks(l => [...l, ...topology.links.map(lk => ({
-        ...lk,
-        id: generateId('l'),
-        source: idMap[lk.source] || lk.source,
-        target: idMap[lk.target] || lk.target,
-      }))]);
-      setRooms(r => [...r, ...topology.rooms.map(rm => ({ ...rm, id: generateId('r') }))]);
+      setLinks(l => [...l, ...nextTopology.links.map(lk => {
+        const remapped = {
+          ...lk,
+          id: generateId('l'),
+          source: idMap[lk.source] || lk.source,
+          target: idMap[lk.target] || lk.target,
+        };
+        if (lk.busId && barrierIdMap[lk.busId]) remapped.busId = barrierIdMap[lk.busId];
+        if (lk.targetBusAnchorId && idMap[lk.targetBusAnchorId]) {
+          remapped.targetBusAnchorId = idMap[lk.targetBusAnchorId];
+        }
+        if (lk.sourceBusAnchorId && idMap[lk.sourceBusAnchorId]) {
+          remapped.sourceBusAnchorId = idMap[lk.sourceBusAnchorId];
+        }
+        return remapped;
+      })]);
+      setRooms(r => [...r, ...nextTopology.rooms.map(rm => ({ ...rm, id: generateId('r') }))]);
       setVlans(v => {
         const existing = new Set(v.map(x => x.name));
-        return [...v, ...topology.vlans.filter(x => !existing.has(x.name))];
+        return [...v, ...nextTopology.vlans.filter(x => !existing.has(x.name))];
       });
-      setBarriers(b => [
-        ...b,
-        ...(topology.barriers || []).map(br => ({ ...br, id: generateId('b') })),
-      ]);
+      setBarriers(b => [...b, ...newBarriers]);
       setVlanZones(z => [
         ...z,
-        ...(topology.vlanZones || []).map(vz => ({ ...vz, id: generateId('vz') })),
+        ...(nextTopology.vlanZones || []).map(vz => ({ ...vz, id: generateId('vz') })),
       ]);
       setPowerZones(z => [
         ...z,
-        ...(topology.powerZones || []).map(pz => ({ ...pz, id: generateId('pz') })),
+        ...(nextTopology.powerZones || []).map(pz => ({ ...pz, id: generateId('pz') })),
       ]);
     } else {
-      setNodes(topology.nodes);
-      setLinks(topology.links);
-      setRooms(topology.rooms);
-      setVlans(topology.vlans);
-      setBarriers(topology.barriers || []);
-      setVlanZones(topology.vlanZones || []);
-      setPowerZones(topology.powerZones || []);
+      setNodes(nextTopology.nodes);
+      setLinks(nextTopology.links);
+      setRooms(nextTopology.rooms);
+      setVlans(nextTopology.vlans);
+      setBarriers(nextTopology.barriers || []);
+      setVlanZones(nextTopology.vlanZones || []);
+      setPowerZones(nextTopology.powerZones || []);
     }
     if (prompt) setCurrentPrompt(prompt);
     setSelectedId(null);
@@ -489,7 +535,7 @@ export default function TopologAi() {
 
   const commandPaletteExtras = useMemo(
     () => [
-      ...nodes.map((n) => ({
+      ...nodes.filter((n) => !n.isBusAnchor).map((n) => ({
         id: `dev_${n.id}`,
         label: `Device: ${n.label || n.id}`,
         keywords: `${n.label || ''} ${n.type}`.toLowerCase(),
@@ -527,7 +573,9 @@ export default function TopologAi() {
   );
 
   const handleQuickStart = () => {
-    const prompt = 'zero trust branch with SD-WAN edge, corporate WiFi, guest WiFi, and identity proxy';
+    const prompt = EXPO_MODE
+      ? 'small office with internet, firewall, router, switch, one access point, one server, and a few workstations'
+      : 'zero trust branch with SD-WAN edge, corporate WiFi, guest WiFi, and identity proxy';
     loadTopology(generatePromptTopology(prompt), prompt, false);
     setInsightsOpen(true);
   };
@@ -560,20 +608,41 @@ export default function TopologAi() {
 
   const handlePatternAdd = (patternId, anchorX, anchorY) => {
     const genId = { node: () => generateId('n'), link: () => generateId('l') };
-    const { nodes: patternNodes, links: patternLinks } = instantiateTopologyPattern(
-      patternId,
-      anchorX,
-      anchorY,
-      genId,
-    );
-    if (!patternNodes.length) {
+    const raw = instantiateTopologyPattern(patternId, anchorX, anchorY, genId);
+    if (!raw.nodes.length) {
       showToast('Unknown topology pattern');
       return;
     }
+    // Re-ID any pattern-emitted barriers so they don't collide with the
+    // canvas, then remap busId references in nodes/links and finally expand
+    // flat device→bus taps into anchor form.
+    const barrierIdMap = {};
+    const reidBarriers = (raw.barriers || []).map((b) => {
+      const nextId = generateId('b');
+      barrierIdMap[b.id] = nextId;
+      return { ...b, id: nextId };
+    });
+    const remappedLinks = raw.links.map((l) => {
+      if (l.busId && barrierIdMap[l.busId]) {
+        const refsBus = l.target === l.busId ? 'target' : l.source === l.busId ? 'source' : null;
+        return {
+          ...l,
+          busId: barrierIdMap[l.busId],
+          ...(refsBus ? { [refsBus]: barrierIdMap[l.busId] } : {}),
+        };
+      }
+      return l;
+    });
+    const expanded = expandBusLinksForCanvas({
+      nodes: raw.nodes,
+      links: remappedLinks,
+      barriers: reidBarriers,
+    });
     pushHistory();
-    setNodes((n) => [...n, ...patternNodes]);
-    setLinks((l) => [...l, ...patternLinks]);
-    setSelectedId(patternNodes[0]?.id ?? null);
+    setNodes((n) => [...n, ...expanded.nodes]);
+    setLinks((l) => [...l, ...expanded.links]);
+    if (reidBarriers.length) setBarriers((b) => [...b, ...reidBarriers]);
+    setSelectedId(raw.nodes[0]?.id ?? null);
     const label = TOPOLOGY_PATTERNS.find((p) => p.id === patternId)?.label || patternId;
     showToast(`Added ${label}`, 'success');
   };
@@ -610,16 +679,97 @@ export default function TopologAi() {
 
   const handleLinkTypeSelect = (type) => {
     if (!linkTypePopup) return;
-    setLinks(l => l.map(x => x.id === linkTypePopup.linkId ? { ...x, type } : x));
+    setLinks((l) =>
+      l.map((x) => {
+        if (x.id !== linkTypePopup.linkId) return x;
+        if (x.busId && type !== 'ethernet' && type !== 'fiber') return { ...x, type: 'ethernet' };
+        return { ...x, type };
+      }),
+    );
     setLinkTypePopup(null);
-    showToast(`Link set to ${type}`, 'success');
+    showToast(`Link set to ${type === 'ethernet' || type === 'fiber' ? type : 'ethernet'}`, 'success');
   };
 
   const handleLinkDelete = (linkId) => {
     pushHistory();
+    const linkToDelete = links.find((x) => x.id === linkId);
     setLinks(l => l.filter(x => x.id !== linkId));
+    if (linkToDelete?.busId) {
+      const busAnchorId = linkToDelete.sourceBusAnchorId || linkToDelete.targetBusAnchorId;
+      if (busAnchorId) {
+        const stillUsed = links.some(
+          (l) =>
+            l.id !== linkId &&
+            (l.sourceBusAnchorId === busAnchorId || l.targetBusAnchorId === busAnchorId),
+        );
+        if (!stillUsed) {
+          setNodes((n) => n.filter((x) => x.id !== busAnchorId));
+        }
+      }
+    }
     if (selectedId === linkId) setSelectedId(null);
     showToast('Connection removed');
+  };
+
+  const handleConnectNodeToBus = (nodeId, busId, anchor) => {
+    const node = nodes.find((n) => n.id === nodeId);
+    const bus = barriers.find((b) => b.id === busId && b.environmentKind === 'bus');
+    if (!node || !bus) return;
+    const exists = links.find((l) => l.busId === busId && (l.source === nodeId || l.target === nodeId));
+    if (exists) {
+      showToast('Device is already attached to this bus');
+      return;
+    }
+    const portCount = getBusPortCount(bus);
+    const usedPortIndex = new Set(
+      links
+        .filter((l) => l.busId === busId && Number.isInteger(l.busPortIndex))
+        .map((l) => l.busPortIndex),
+    );
+    const availablePortIndexes = Array.from({ length: portCount }, (_, i) => i).filter((i) => !usedPortIndex.has(i));
+    if (!availablePortIndexes.length) {
+      showToast(`Bus is full (${portCount} ports used)`);
+      return;
+    }
+    const fallbackAnchor = getBusPortAnchor(bus, availablePortIndexes[0]);
+    const targetAnchor = anchor || fallbackAnchor;
+    const bestPortIndex = availablePortIndexes.reduce((best, idx) => {
+      const p = getBusPortAnchor(bus, idx);
+      const d = Math.hypot(targetAnchor.x - p.x, targetAnchor.y - p.y);
+      if (!best || d < best.dist) return { idx, dist: d, point: p };
+      return best;
+    }, null);
+    const selectedPortIndex = bestPortIndex?.idx ?? availablePortIndexes[0];
+    const selectedPortAnchor = bestPortIndex?.point ?? fallbackAnchor;
+    pushHistory();
+    const busAnchorId = generateId('bn');
+    const busAnchorNode = {
+      id: busAnchorId,
+      type: 'switch',
+      label: `Bus tap (${bus.label || 'Bus'})`,
+      x: selectedPortAnchor.x - 45,
+      y: selectedPortAnchor.y - 28,
+      ip: '',
+      vlan: null,
+      isBusAnchor: true,
+      busId,
+      busPortIndex: selectedPortIndex,
+    };
+    setNodes((n) => [...n, busAnchorNode]);
+    const newId = generateId('l');
+    const newLink = {
+      id: newId,
+      source: nodeId,
+      target: busAnchorId,
+      type: 'ethernet',
+      label: 'Bus',
+      busId,
+      busPortIndex: selectedPortIndex,
+      targetBusAnchorId: busAnchorId,
+    };
+    setLinks((l) => [...l, newLink]);
+    setSelectedId(newId);
+    showToast('Device attached to bus', 'success');
   };
 
   const handleLinkUpdate = (id, data) => {
@@ -640,11 +790,32 @@ export default function TopologAi() {
         setNodes(n => n.filter(x => x.id !== target.id));
         setLinks(l => l.filter(x => x.source !== target.id && x.target !== target.id));
       } else if (target.type === 'link') {
+        const targetLink = links.find((l) => l.id === target.id);
         setLinks(l => l.filter(x => x.id !== target.id));
+        const busAnchorId = targetLink?.sourceBusAnchorId || targetLink?.targetBusAnchorId;
+        if (busAnchorId) {
+          const stillUsed = links.some(
+            (l) =>
+              l.id !== target.id &&
+              (l.sourceBusAnchorId === busAnchorId || l.targetBusAnchorId === busAnchorId),
+          );
+          if (!stillUsed) setNodes((n) => n.filter((x) => x.id !== busAnchorId));
+        }
       } else if (target.type === 'room') {
         setRooms(r => r.filter(x => x.id !== target.id));
       } else if (target.type === 'barrier') {
+        const isBus = target.item?.environmentKind === 'bus';
         setBarriers(b => b.filter(x => x.id !== target.id));
+        if (isBus) {
+          const busAnchorIds = links
+            .filter((l) => l.busId === target.id)
+            .flatMap((l) => [l.sourceBusAnchorId, l.targetBusAnchorId].filter(Boolean));
+          setLinks((ls) => ls.filter((l) => l.busId !== target.id));
+          if (busAnchorIds.length) {
+            const anchorSet = new Set(busAnchorIds);
+            setNodes((n) => n.filter((x) => !anchorSet.has(x.id)));
+          }
+        }
       } else if (target.type === 'vlanZone') {
         setVlanZones(z => z.filter(x => x.id !== target.id));
       } else if (target.type === 'powerZone') {
@@ -667,6 +838,10 @@ export default function TopologAi() {
       setConnectingFrom(target.id);
       showToast('Click target device to connect');
     } else if (action === 'change_type' && target.type === 'link') {
+      if (target.item?.busId) {
+        showToast('Bus links support Ethernet or Fiber only');
+        return;
+      }
       const rect = canvasRef.current?.getBoundingClientRect();
       if (rect) setLinkTypePopup({ x: contextMenu.x, y: contextMenu.y, linkId: target.id });
     } else if (action === 'zoom_fit') {
@@ -738,38 +913,83 @@ export default function TopologAi() {
   };
 
   const handleDelete = () => {
-    const selectedNodeIds = selectedIds.length > 1 ? selectedIds : selectedId ? [selectedId] : [];
-    if (!selectedNodeIds.length && !selectedId) return;
-    if (selectedId && barriers.some(b => b.id === selectedId)) {
-      pushHistory();
-      setBarriers(b => b.filter(x => x.id !== selectedId));
-      setSelectedId(null);
-      return;
-    }
-    if (selectedId && vlanZones.some(z => z.id === selectedId)) {
-      pushHistory();
-      setVlanZones(z => z.filter(x => x.id !== selectedId));
-      setSelectedId(null);
-      return;
-    }
-    if (selectedId && powerZones.some(z => z.id === selectedId)) {
-      pushHistory();
-      setPowerZones(z => z.filter(x => x.id !== selectedId));
-      setSelectedId(null);
-      return;
-    }
+    const allIdsRaw = selectedIds.length ? selectedIds : selectedId ? [selectedId] : [];
+    if (!allIdsRaw.length && !selectedId) return;
+
     pushHistory();
-    const selectedNodeSet = new Set(selectedNodeIds);
-    setNodes(n => n.filter(x => !selectedNodeSet.has(x.id)));
-    setLinks(l => l.filter(x => !selectedNodeSet.has(x.source) && !selectedNodeSet.has(x.target) && (selectedNodeIds.length <= 1 ? x.id !== selectedId : true)));
-    if (selectedId && selectedNodeIds.length === 1) setRooms(r => r.filter(x => x.id !== selectedId));
+
+    const allIds = [...new Set(allIdsRaw.length ? allIdsRaw : selectedId ? [selectedId] : [])];
+    if (!allIds.length) return;
+
+    const nodeIds = new Set(nodes.map((n) => n.id));
+    const linkIdsSet = new Set(links.map((l) => l.id));
+    const barrierIdsSet = new Set(barriers.map((b) => b.id));
+    const roomIdsSet = new Set(rooms.map((r) => r.id));
+    const vlanZoneIdsSet = new Set(vlanZones.map((z) => z.id));
+    const powerZoneIdsSet = new Set(powerZones.map((z) => z.id));
+
+    const delNodeIds = allIds.filter((id) => nodeIds.has(id));
+    const delExplicitLinkIds = allIds.filter((id) => linkIdsSet.has(id));
+    const delBarrierIds = allIds.filter((id) => barrierIdsSet.has(id));
+    const delRoomIds = allIds.filter((id) => roomIdsSet.has(id));
+    const delVlanZoneIds = allIds.filter((id) => vlanZoneIdsSet.has(id));
+    const delPowerZoneIds = allIds.filter((id) => powerZoneIdsSet.has(id));
+
+    const busAnchorIdsFromBars = barriers
+      .filter((b) => delBarrierIds.includes(b.id) && b.environmentKind === 'bus')
+      .flatMap((b) =>
+        links
+          .filter((l) => l.busId === b.id)
+          .flatMap((l) => [l.sourceBusAnchorId, l.targetBusAnchorId].filter(Boolean)),
+      );
+
+    const delLinkIds = links
+      .filter((l) => delNodeIds.includes(l.source) || delNodeIds.includes(l.target))
+      .map((l) => l.id)
+      .concat(delExplicitLinkIds)
+      .concat(links.filter((l) => delBarrierIds.includes(l.busId)).map((l) => l.id));
+
+    const delBusAnchorNodeIds = [...new Set(busAnchorIdsFromBars)];
+
+    if (delNodeIds.length)
+      setNodes((n) => n.filter((x) => !delNodeIds.includes(x.id)));
+    if (delBusAnchorNodeIds.length)
+      setNodes((n) => n.filter((x) => !delBusAnchorNodeIds.includes(x.id)));
+    if (delBarrierIds.length)
+      setBarriers((b) => b.filter((x) => !delBarrierIds.includes(x.id)));
+    if (delRoomIds.length)
+      setRooms((r) => r.filter((x) => !delRoomIds.includes(x.id)));
+    if (delVlanZoneIds.length)
+      setVlanZones((z) => z.filter((x) => !delVlanZoneIds.includes(x.id)));
+    if (delPowerZoneIds.length)
+      setPowerZones((z) => z.filter((x) => !delPowerZoneIds.includes(x.id)));
+
+    if (delNodeIds.length || delLinkIds.length || delBusAnchorNodeIds.length)
+      setLinks((l) =>
+        l.filter(
+          (ln) =>
+            !delLinkIds.includes(ln.id) &&
+            !delNodeIds.includes(ln.source) &&
+            !delNodeIds.includes(ln.target) &&
+            !delBusAnchorNodeIds.includes(ln.source) &&
+            !delBusAnchorNodeIds.includes(ln.target),
+        ),
+      );
+
     setSelectedId(null);
     setSelectedIds([]);
   };
 
   const handleUpdate = (id, form, type) => {
     if (type === 'node') setNodes(n => n.map(x => x.id === id ? { ...x, ...form } : x));
-    if (type === 'link') setLinks(l => l.map(x => x.id === id ? { ...x, ...form } : x));
+    if (type === 'link') {
+      const existing = links.find((l) => l.id === id);
+      const nextForm =
+        existing?.busId && form?.type && form.type !== 'ethernet' && form.type !== 'fiber'
+          ? { ...form, type: 'ethernet' }
+          : form;
+      setLinks((l) => l.map((x) => (x.id === id ? { ...x, ...nextForm } : x)));
+    }
     if (type === 'room') setRooms(r => r.map(x => x.id === id ? { ...x, ...form } : x));
     if (type === 'barrier') setBarriers(b => b.map(x => x.id === id ? { ...x, ...form } : x));
     if (type === 'vlanZone') setVlanZones(z => z.map(x => x.id === id ? { ...x, ...form } : x));
@@ -884,7 +1104,7 @@ export default function TopologAi() {
     const raw = localStorage.getItem(CANVAS_STORAGE_KEY);
     if (!raw) { showToast('No saved data found'); return; }
     try {
-      const data = JSON.parse(raw);
+      const data = adaptTopologyForCurrentMode(JSON.parse(raw));
       pushHistory();
       setNodes(data.nodes || []);
       setLinks(data.links || []);
@@ -903,15 +1123,16 @@ export default function TopologAi() {
   };
 
   const applyImportedTopology = (data, label = 'Imported topology') => {
+    const nextData = adaptTopologyForCurrentMode(data);
     pushHistory();
-    setNodes(data.nodes || []);
-    setLinks(data.links || []);
-    setRooms(data.rooms || []);
-    setVlans(data.vlans || []);
-    setBarriers(data.barriers || []);
-    setVlanZones(data.vlanZones || []);
-    setPowerZones(data.powerZones || []);
-    setCurrentPrompt(data.prompt || label);
+    setNodes(nextData.nodes || []);
+    setLinks(nextData.links || []);
+    setRooms(nextData.rooms || []);
+    setVlans(nextData.vlans || []);
+    setBarriers(nextData.barriers || []);
+    setVlanZones(nextData.vlanZones || []);
+    setPowerZones(nextData.powerZones || []);
+    setCurrentPrompt(nextData.prompt || label);
     setSelectedId(null);
     setSelectedIds([]);
     setInsightsOpen(true);
@@ -1188,8 +1409,9 @@ export default function TopologAi() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
         e.preventDefault();
-        if (nodes.length) {
-          setSelectedIds(nodes.map((n) => n.id));
+        const selectableNodes = nodes.filter((n) => !n.isBusAnchor);
+        if (selectableNodes.length) {
+          setSelectedIds(selectableNodes.map((n) => n.id));
           setSelectedId(null);
         }
       }
@@ -1198,7 +1420,9 @@ export default function TopologAi() {
         aiSubmitRef.current?.submitGenerate?.();
       }
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-        const moveIds = selectedIds.length ? selectedIds : selectedId ? [selectedId] : [];
+        const rawMoveIds = selectedIds.length ? selectedIds : selectedId ? [selectedId] : [];
+        const nodeIdSet = new Set(nodes.map((n) => n.id));
+        const moveIds = rawMoveIds.filter((id) => nodeIdSet.has(id));
         if (moveIds.length) {
           e.preventDefault();
           pushHistory();
@@ -1231,7 +1455,12 @@ export default function TopologAi() {
     return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
   }, [selectedId, selectedIds, mode, nodes, links, clearFailureSim, setCommandPaletteOpen, setShortcutsOpen, setFailureSim, setHeatmapMode, handleUndo, handleRedo, handleSave, handleDelete, handleDuplicateSelection, pushHistory, setNodes, setLinks, setSelectedIds, setSelectedId, setRenameModal, setMode]);
 
-  const hasTopology = nodes.length > 0;
+  const hasTopology =
+    nodes.length > 0 ||
+    rooms.length > 0 ||
+    barriers.length > 0 ||
+    vlanZones.length > 0 ||
+    powerZones.length > 0;
   const hasSelection = !!selectedId || selectedIds.length > 1;
 
   const hasClassicBarriers = useMemo(
@@ -1343,11 +1572,11 @@ export default function TopologAi() {
                 placementPattern={placementPattern}
               />
             </div>
-            {!EXPO_MODE && (
-              <div className="flex min-h-0 max-h-[min(28vh,248px)] shrink-0 flex-col overflow-hidden border-t border-border/80">
-                <EnvironmentToolbox mode={mode} setMode={setMode} />
-              </div>
-            )}
+            <div className={`flex min-h-0 shrink-0 flex-col overflow-hidden border-t border-border/80 ${
+              EXPO_MODE ? 'max-h-[min(36vh,320px)]' : 'max-h-[min(28vh,248px)]'
+            }`}>
+              <EnvironmentToolbox mode={mode} setMode={setMode} />
+            </div>
           </div>
         )}
 
@@ -1427,6 +1656,7 @@ export default function TopologAi() {
             onNodeMove={handleNodeMove}
             onNodeAdd={handleNodeAdd}
             onLinkAdd={handleLinkAdd}
+            onConnectNodeToBus={handleConnectNodeToBus}
             onLinkUpdate={handleLinkUpdate}
             onLinkDelete={handleLinkDelete}
             onRoomAdd={handleRoomAdd}
@@ -1517,13 +1747,12 @@ export default function TopologAi() {
               Click and drag to draw a room - Esc to cancel
             </div>
           )}
-          {(mode === 'barrier' || mode === 'noise' || mode === 'conduit' || mode === 'door' || mode === 'window' || mode === 'obstacle') && (
+          {(mode === 'barrier' || mode === 'bus' || mode === 'noise' || mode === 'conduit' || mode === 'obstacle') && (
             <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-primary/90 text-primary-foreground text-xs px-3 py-1.5 rounded-full shadow-lg">
               {mode === 'noise' && 'Draw noise source line — RF hint for the engine'}
               {mode === 'conduit' && 'Draw cable conduit — visual raceway (non-blocking)'}
               {mode === 'barrier' && 'Drag to draw a wall / barrier — affects Wi‑Fi in intelligence engine'}
-              {mode === 'door' && 'Draw door / opening — low RF loss (v3)'}
-              {mode === 'window' && 'Draw glass partition — medium RF loss'}
+              {mode === 'bus' && 'Drag to draw a bus backbone, then connect devices to the line'}
               {mode === 'obstacle' && 'Draw furniture / rack — wood default, may block cable path'}
             </div>
           )}
@@ -1534,7 +1763,7 @@ export default function TopologAi() {
           )}
           {mode === 'vlanzone' && (
             <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-primary/90 text-primary-foreground text-xs px-3 py-1.5 rounded-full shadow-lg">
-              Drag a VLAN overlay region — Esc to cancel
+              Drag a room overlay region — Esc to cancel
             </div>
           )}
 
@@ -1551,6 +1780,7 @@ export default function TopologAi() {
         {/* Properties panel */}
         {hasSelection && propsPanelOpen && !focusMode && (
           <PropertiesPanel
+            expoMode={EXPO_MODE}
             selectedId={selectedId}
             nodes={nodes} links={links} rooms={rooms} barriers={barriers} vlanZones={vlanZones} powerZones={powerZones} vlans={vlans}
             deviceStates={smartSnapshot?.deviceStates}
@@ -1565,7 +1795,7 @@ export default function TopologAi() {
       {EXPO_MODE ? (
         <div className="flex-shrink-0 flex items-center justify-between gap-4 px-4 py-1.5 text-[11px] text-muted-foreground border-t border-border/60 bg-card/80">
           <span className="font-medium">
-            {nodes.length} device{nodes.length === 1 ? '' : 's'} · {links.length} link{links.length === 1 ? '' : 's'} · {vlans.length} VLAN{vlans.length === 1 ? '' : 's'}
+            {nodes.filter((n) => !n.isBusAnchor).length} device{nodes.filter((n) => !n.isBusAnchor).length === 1 ? '' : 's'} · {links.length} link{links.length === 1 ? '' : 's'}
           </span>
           <span className="font-mono tabular-nums">{Math.round(zoom * 100)}%</span>
         </div>

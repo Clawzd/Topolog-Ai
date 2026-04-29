@@ -35,16 +35,17 @@ const MODES = [
   { id: 'barrier', icon: BrickWall, label: 'Draw Barrier', key: 'B' },
   { id: 'noise', icon: Volume2, label: 'Noise source', key: '' },
   { id: 'conduit', icon: Route, label: 'Cable conduit', key: '' },
-  { id: 'vlanzone', icon: LayoutGrid, label: 'VLAN zone overlay', key: 'Z' },
+  { id: 'vlanzone', icon: LayoutGrid, label: 'Room overlay', key: 'Z' },
 ];
 
 // Course / expo build keeps only the four modes that map directly to course
-// concepts (select, connect, pan, VLAN zone overlay).
+// concepts (select, connect, pan, room overlay).
 const EXPO_MODES = [
   { id: 'select', icon: MousePointer2, label: 'Select / Move', key: 'V' },
   { id: 'connect', icon: Link2, label: 'Draw Connection', key: 'C' },
   { id: 'pan', icon: Move, label: 'Pan Canvas', key: 'H' },
-  { id: 'vlanzone', icon: LayoutGrid, label: 'VLAN zone overlay', key: 'Z' },
+  { id: 'barrier', icon: BrickWall, label: 'Draw Wall', key: 'B' },
+  { id: 'vlanzone', icon: LayoutGrid, label: 'Room overlay', key: 'Z' },
 ];
 
 function ToolBtn({ onClick, title, shortcut = '', children, active = false, danger = false, disabled = false }) {

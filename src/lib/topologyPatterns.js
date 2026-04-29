@@ -111,59 +111,75 @@ function buildStar(ax, ay, node, link) {
 }
 
 /**
- * BUS: Shared backbone with drop connections.
- * Two-row layout: backbone on center line, endpoints branching above and below.
+ * BUS: Shared backbone barrier with drop taps.
+ * Emits one bus barrier (environmentKind:'bus') plus device nodes above/below.
+ * Each tap is a flat device → bus link; busExpansion converts those into the
+ * canvas-internal anchor format on load, so the rendering uses the real
+ * Bus Backbone primitive instead of a chain of switches.
  */
 function buildBus(ax, ay, node, link) {
-  const spacing = 140;
-  const startX = ax - spacing * 3;
+  const halfLen = 460;
+  const x1 = ax - halfLen;
+  const x2 = ax + halfLen;
+  const yLine = ay;
+  const portCount = 10;
 
-  // Backbone devices (horizontal line)
-  const router = node('router', 'Bus — Edge Router', startX, ay, { ip: '10.2.0.1' });
-  const fw = node('firewall', 'Bus — Firewall', startX + spacing, ay, { ip: '10.2.0.2' });
-  const sw1 = node('switch', 'Bus — Switch A', startX + spacing * 2, ay, { ip: '10.2.1.1' });
-  const sw2 = node('switch', 'Bus — Switch B', startX + spacing * 3, ay, { ip: '10.2.1.2' });
-  const sw3 = node('switch', 'Bus — Switch C', startX + spacing * 4, ay, { ip: '10.2.1.3' });
-  const srv = node('server', 'Bus — Server', startX + spacing * 5, ay, { ip: '10.2.10.1' });
-  const nas = node('nas', 'Bus — NAS', startX + spacing * 6, ay, { ip: '10.2.10.2' });
+  const bus = {
+    id: 'bus_pattern_main',
+    shape: 'line',
+    environmentKind: 'bus',
+    barrierType: 'metal',
+    thickness: 'medium',
+    portCount,
+    blocksWifi: false,
+    blocksCablePath: false,
+    label: 'Bus backbone',
+    x1, y1: yLine, x2, y2: yLine,
+  };
 
-  // Endpoints above backbone (y - 120)
-  const yUp = ay - 130;
-  const pc1 = node('pc', 'Bus — PC 1', startX + spacing * 2, yUp, { ip: '10.2.1.50' });
-  const pc2 = node('pc', 'Bus — PC 2', startX + spacing * 3, yUp, { ip: '10.2.1.51' });
-  const laptop1 = node('laptop', 'Bus — Laptop 1', startX + spacing * 4, yUp, { ip: '10.2.1.52' });
-  const printer = node('printer', 'Bus — Printer', startX + spacing * 5, yUp, { ip: '10.2.1.70' });
+  // Device row above the backbone
+  const yUp = yLine - 150;
+  const router = node('router', 'Bus — Edge Router', ax - 380, yUp, { ip: '10.2.0.1' });
+  const fw = node('firewall', 'Bus — Firewall', ax - 220, yUp, { ip: '10.2.0.2' });
+  const srv = node('server', 'Bus — Server', ax - 60, yUp, { ip: '10.2.10.1' });
+  const nas = node('nas', 'Bus — NAS', ax + 100, yUp, { ip: '10.2.10.2' });
+  const printer = node('printer', 'Bus — Printer', ax + 260, yUp, { ip: '10.2.1.70' });
 
-  // Endpoints below backbone (y + 120)
-  const yDown = ay + 130;
-  const ap = node('ap', 'Bus — WiFi AP', startX + spacing * 2, yDown, { ip: '10.2.1.10' });
-  const phone1 = node('phone', 'Bus — VoIP 1', startX + spacing * 3, yDown, { ip: '10.2.1.60' });
-  const phone2 = node('phone', 'Bus — VoIP 2', startX + spacing * 4, yDown, { ip: '10.2.1.61' });
-  const cam = node('camera', 'Bus — Camera', startX + spacing * 5, yDown, { ip: '10.2.1.80' });
+  // Device row below the backbone
+  const yDown = yLine + 150;
+  const pc1 = node('pc', 'Bus — PC 1', ax - 380, yDown, { ip: '10.2.1.50' });
+  const pc2 = node('pc', 'Bus — PC 2', ax - 220, yDown, { ip: '10.2.1.51' });
+  const ap = node('ap', 'Bus — WiFi AP', ax - 60, yDown, { ip: '10.2.1.10' });
+  const phone = node('phone', 'Bus — VoIP', ax + 100, yDown, { ip: '10.2.1.60' });
+  const cam = node('camera', 'Bus — Camera', ax + 260, yDown, { ip: '10.2.1.80' });
 
-  const nodes = [router, fw, sw1, sw2, sw3, srv, nas, pc1, pc2, laptop1, printer, ap, phone1, phone2, cam];
+  const nodes = [router, fw, srv, nas, printer, pc1, pc2, ap, phone, cam];
+
+  // Each device taps the bus. busExpansion will create the anchor + final link.
+  const tap = (n, port, type = 'ethernet', label = 'Bus') => ({
+    id: `lp_bus_${port}`,
+    source: n.id,
+    target: bus.id,
+    type,
+    label,
+    busId: bus.id,
+    busPortIndex: port,
+  });
 
   const links = [
-    // Backbone chain
-    link(router.id, fw.id, 'wan', 'WAN'),
-    link(fw.id, sw1.id, 'fiber', '10Gbps'),
-    link(sw1.id, sw2.id, 'fiber', 'Backbone'),
-    link(sw2.id, sw3.id, 'fiber', 'Backbone'),
-    link(sw3.id, srv.id, 'ethernet', '1Gbps'),
-    link(srv.id, nas.id, 'ethernet', '1Gbps'),
-    // Drop connections above
-    link(sw1.id, pc1.id, 'ethernet', ''),
-    link(sw2.id, pc2.id, 'ethernet', ''),
-    link(sw3.id, laptop1.id, 'ethernet', ''),
-    link(srv.id, printer.id, 'ethernet', ''),
-    // Drop connections below
-    link(sw1.id, ap.id, 'ethernet', 'PoE'),
-    link(sw2.id, phone1.id, 'ethernet', 'PoE'),
-    link(sw3.id, phone2.id, 'ethernet', 'PoE'),
-    link(sw3.id, cam.id, 'ethernet', 'PoE'),
-  ];
+    tap(router, 0),
+    tap(fw, 1),
+    tap(srv, 2, 'fiber', 'Backbone'),
+    tap(nas, 3, 'fiber', 'Backbone'),
+    tap(printer, 4),
+    tap(pc1, 5),
+    tap(pc2, 6),
+    tap(ap, 7),
+    tap(phone, 8),
+    tap(cam, 9),
+  ].map((l) => ({ ...l, id: `${l.id}_${Math.random().toString(36).slice(2, 6)}` }));
 
-  return { nodes, links };
+  return { nodes, links, barriers: [bus] };
 }
 
 /**

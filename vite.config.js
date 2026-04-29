@@ -22,6 +22,10 @@ export default defineConfig(({ mode }) => {
     },
     // Browser → api.deepseek.com hits CORS; proxy in dev so the AI panel works with only .env.
     server: {
+      // Windows often reserves 5150–5249 (Hyper-V, etc.); 5173 is in that range and bind() → EACCES.
+      host: '127.0.0.1',
+      port: 40900,
+      strictPort: false,
       proxy: {
         '/deepseek-api': {
           target: 'https://api.deepseek.com',
