@@ -157,40 +157,64 @@ export function applySmartLayout(topology, mapState = {}) {
 
 /**
  * Auto-size rooms so they contain all devices that belong to them.
- * Matches devices to rooms by checking if their original position was within the room bounds,
- * or by VLAN matching.
+ * Each node is assigned exclusively to the room whose original center is
+ * closest, which prevents two adjacent rooms from both expanding to claim
+ * the same boundary node and then overlapping.
+ * After sizing, a separation pass pushes any still-overlapping rooms apart.
  */
 function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
   if (!rooms || rooms.length === 0) return [];
 
-  return rooms.map(room => {
-    const roomRect = {
-      x: room.x + offsetX,
-      y: room.y + offsetY,
-      w: room.w,
-      h: room.h,
-    };
+  // Translate room origins to canvas coordinates.
+  const rects = rooms.map(room => ({
+    ...room,
+    x: room.x + offsetX,
+    y: room.y + offsetY,
+  }));
 
-    // Find nodes that should be inside this room
-    const containedNodes = adjustedNodes.filter(n => {
-      // Check by position: node center is within the room bounds (with some tolerance)
-      const cx = n.x + NODE_W / 2;
-      const cy = n.y + NODE_H / 2;
-      return (
-        cx >= roomRect.x - ROOM_PAD &&
-        cx <= roomRect.x + roomRect.w + ROOM_PAD &&
-        cy >= roomRect.y - ROOM_PAD &&
-        cy <= roomRect.y + roomRect.h + ROOM_PAD
-      );
-    });
+  // Build a centre point for each room (used for proximity assignment).
+  const centers = rects.map(r => ({ cx: r.x + r.w / 2, cy: r.y + r.h / 2 }));
 
-    if (containedNodes.length === 0) {
-      return { ...room, x: roomRect.x, y: roomRect.y };
+  // Exclusively assign each node to the nearest room whose original bounding
+  // box (+ ROOM_PAD tolerance) contains it.  If no room contains a node,
+  // assign to the room whose centre is closest.
+  const buckets = rects.map(() => []);
+  for (const n of adjustedNodes) {
+    if (n.isBusAnchor) continue; // bus anchors are invisible; don't pull rooms
+    const cx = n.x + NODE_W / 2;
+    const cy = n.y + NODE_H / 2;
+
+    // Rooms that actually contain the node centre
+    const containing = rects
+      .map((r, i) => ({ i, inside: cx >= r.x - ROOM_PAD && cx <= r.x + r.w + ROOM_PAD && cy >= r.y - ROOM_PAD && cy <= r.y + r.h + ROOM_PAD }))
+      .filter(e => e.inside);
+
+    let chosen;
+    if (containing.length === 1) {
+      chosen = containing[0].i;
+    } else if (containing.length > 1) {
+      // Multiple rooms claim this node — give it to the nearest centre.
+      chosen = containing.reduce((best, e) => {
+        const d = Math.hypot(cx - centers[e.i].cx, cy - centers[e.i].cy);
+        return d < best.d ? { i: e.i, d } : best;
+      }, { i: containing[0].i, d: Infinity }).i;
+    } else {
+      // Node is outside every room — assign to the nearest room centre.
+      chosen = centers.reduce((best, c, i) => {
+        const d = Math.hypot(cx - c.cx, cy - c.cy);
+        return d < best.d ? { i, d } : best;
+      }, { i: 0, d: Infinity }).i;
     }
+    buckets[chosen].push(n);
+  }
 
-    // Compute bounding box of contained nodes
+  // Size each room to its exclusive set of nodes.
+  let sized = rects.map((room, i) => {
+    const nodes = buckets[i];
+    if (nodes.length === 0) return room;
+
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const n of containedNodes) {
+    for (const n of nodes) {
       if (n.x < minX) minX = n.x;
       if (n.y < minY) minY = n.y;
       if (n.x + NODE_W > maxX) maxX = n.x + NODE_W;
@@ -201,10 +225,42 @@ function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
       ...room,
       x: minX - ROOM_PAD,
       y: minY - ROOM_PAD,
-      w: Math.max(room.w, maxX - minX + ROOM_PAD * 2),
-      h: Math.max(room.h, maxY - minY + ROOM_PAD * 2),
+      w: maxX - minX + ROOM_PAD * 2,
+      h: maxY - minY + ROOM_PAD * 2,
     };
   });
+
+  // Separation pass: push overlapping rooms apart (up to 10 iterations).
+  const GAP = 8; // minimum gap between room edges
+  for (let iter = 0; iter < 10; iter++) {
+    let moved = false;
+    for (let a = 0; a < sized.length; a++) {
+      for (let b = a + 1; b < sized.length; b++) {
+        const ra = sized[a];
+        const rb = sized[b];
+        const overlapX = (ra.x + ra.w + GAP) - rb.x;
+        const overlapY = (ra.y + ra.h + GAP) - rb.y;
+        if (overlapX <= 0 || overlapY <= 0) continue;
+        if (rb.x + rb.w + GAP <= ra.x) continue;
+        if (rb.y + rb.h + GAP <= ra.y) continue;
+
+        // Push along the axis of smaller overlap, splitting evenly.
+        if (overlapX < overlapY) {
+          const half = overlapX / 2;
+          sized[a] = { ...ra, x: ra.x - half };
+          sized[b] = { ...rb, x: rb.x + half };
+        } else {
+          const half = overlapY / 2;
+          sized[a] = { ...ra, y: ra.y - half };
+          sized[b] = { ...rb, y: rb.y + half };
+        }
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+
+  return sized;
 }
 
 /**
