@@ -1098,6 +1098,12 @@ export default function TopologyCanvas({
       const portCount = getBusPortCount(b);
       const usedCount = busConnectionCount.get(b.id) || 0;
       const backbonePath = `M ${lx1} ${ly1} L ${lx2} ${ly2}`;
+      const dx = lx2 - lx1;
+      const dy = ly2 - ly1;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const terminatorHalf = isSel ? 10 : 8;
       return (
         <g key={b.id}>
           <line
@@ -1127,8 +1133,26 @@ export default function TopologyCanvas({
             opacity={0.96}
             style={{ pointerEvents: 'none' }}
           />
-          <circle cx={lx1} cy={ly1} r={isSel ? 5 : 4} fill="#f8fafc" stroke="rgba(148,163,184,0.95)" strokeWidth={1} style={{ pointerEvents: 'none' }} />
-          <circle cx={lx2} cy={ly2} r={isSel ? 5 : 4} fill="#f8fafc" stroke="rgba(148,163,184,0.95)" strokeWidth={1} style={{ pointerEvents: 'none' }} />
+          <line
+            x1={lx1 - nx * terminatorHalf}
+            y1={ly1 - ny * terminatorHalf}
+            x2={lx1 + nx * terminatorHalf}
+            y2={ly1 + ny * terminatorHalf}
+            stroke="#f8fafc"
+            strokeWidth={isSel ? 3.2 : 2.8}
+            strokeLinecap="round"
+            style={{ pointerEvents: 'none' }}
+          />
+          <line
+            x1={lx2 - nx * terminatorHalf}
+            y1={ly2 - ny * terminatorHalf}
+            x2={lx2 + nx * terminatorHalf}
+            y2={ly2 + ny * terminatorHalf}
+            stroke="#f8fafc"
+            strokeWidth={isSel ? 3.2 : 2.8}
+            strokeLinecap="round"
+            style={{ pointerEvents: 'none' }}
+          />
           {Array.from({ length: portCount }, (_, i) => {
             const p = getBusPortPoint(b, i);
             const used = (busUsedPortIndexes.get(b.id) || new Set()).has(i);

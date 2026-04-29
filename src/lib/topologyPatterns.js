@@ -143,43 +143,23 @@ function buildBus(ax, ay, node, link) {
     x1, y1: yLine, x2, y2: yLine,
   };
 
-  // 4 concentrator switches that tap the bus (evenly spaced)
-  const spacing = (halfLen * 2) / 4; // ~210 px
-  const cxA = ax - halfLen + spacing * 0.5; // ~ax - 315
-  const cxB = ax - halfLen + spacing * 1.5; // ~ax - 105
-  const cxC = ax - halfLen + spacing * 2.5; // ~ax + 105
-  const cxD = ax - halfLen + spacing * 3.5; // ~ax + 315
+  const tapOffsets = [-315, -225, -135, -45, 45, 135, 225, 315];
+  const topY = yLine - 170;
+  const bottomY = yLine + 170;
+  const nodes = [
+    node('pc', 'Bus - Admin PC', ax + tapOffsets[0], topY, { ip: '10.2.0.11' }),
+    node('pc', 'Bus - Office PC', ax + tapOffsets[1], bottomY, { ip: '10.2.0.12' }),
+    node('pc', 'Bus - CAD Workstation', ax + tapOffsets[2], topY, { ip: '10.2.0.13' }),
+    node('printer', 'Bus - Shared Printer', ax + tapOffsets[3], bottomY, { ip: '10.2.0.20' }),
+    node('server', 'Bus - File Server', ax + tapOffsets[4], topY, { ip: '10.2.0.30' }),
+    node('nas', 'Bus - Backup NAS', ax + tapOffsets[5], bottomY, { ip: '10.2.0.31' }),
+    node('camera', 'Bus - Camera 1', ax + tapOffsets[6], topY, { ip: '10.2.0.40' }),
+    node('camera', 'Bus - Camera 2', ax + tapOffsets[7], bottomY, { ip: '10.2.0.41' }),
+  ];
 
-  const swA = node('switch', 'Bus — Star Hub A', cxA, yLine - 140, { ip: '10.2.1.1' });
-  const swB = node('switch', 'Bus — Star Hub B', cxB, yLine - 140, { ip: '10.2.1.2' });
-  const swC = node('switch', 'Bus — Star Hub C', cxC, yLine + 140, { ip: '10.2.1.3' });
-  const swD = node('switch', 'Bus — Star Hub D', cxD, yLine + 140, { ip: '10.2.1.4' });
-
-  // Star cluster A (above-left) — 2 endpoints above swA
-  const pc1 = node('pc', 'Bus — PC 1', cxA - 80, yLine - 280, { ip: '10.2.10.50' });
-  const pc2 = node('pc', 'Bus — PC 2', cxA + 80, yLine - 280, { ip: '10.2.10.51' });
-
-  // Star cluster B (above-right) — 2 endpoints above swB
-  const ap = node('ap', 'Bus — WiFi AP', cxB - 80, yLine - 280, { ip: '10.2.10.10' });
-  const laptop = node('laptop', 'Bus — Laptop', cxB + 80, yLine - 280, { ip: '10.2.10.52' });
-
-  // Star cluster C (below-left) — 2 endpoints below swC
-  const srv = node('server', 'Bus — Server', cxC - 80, yLine + 280, { ip: '10.2.20.1' });
-  const nas = node('nas', 'Bus — NAS', cxC + 80, yLine + 280, { ip: '10.2.20.2' });
-
-  // Star cluster D (below-right) — 2 endpoints below swD
-  const cam = node('camera', 'Bus — Camera', cxD - 80, yLine + 280, { ip: '10.2.10.80' });
-  const phone = node('phone', 'Bus — VoIP', cxD + 80, yLine + 280, { ip: '10.2.10.60' });
-
-  // Edge router at the far left, connected to swA via normal link
-  const router = node('router', 'Bus — Edge Router', ax - halfLen - 120, yLine - 140, { ip: '10.2.0.1' });
-
-  const nodes = [router, swA, swB, swC, swD, pc1, pc2, ap, laptop, srv, nas, cam, phone];
-
-  // Bus taps: each concentrator switch taps the backbone
-  const tap = (n, port, type = 'ethernet', label = '') => ({
+  const tap = (device, port, type = 'ethernet', label = 'Bus') => ({
     id: `lp_bus_${port}_${Math.random().toString(36).slice(2, 5)}`,
-    source: n.id,
+    source: device.id,
     target: bus.id,
     type,
     label,
@@ -187,27 +167,7 @@ function buildBus(ax, ay, node, link) {
     busPortIndex: port,
   });
 
-  const links = [
-    // Router → Star Hub A (normal node-to-node link, not a bus tap)
-    link(router.id, swA.id, 'wan', 'WAN'),
-    // 4 concentrators tap the bus
-    tap(swA, 1),
-    tap(swB, 3),
-    tap(swC, 4),
-    tap(swD, 6),
-    // Star cluster A
-    link(swA.id, pc1.id, 'ethernet', ''),
-    link(swA.id, pc2.id, 'ethernet', ''),
-    // Star cluster B
-    link(swB.id, ap.id, 'ethernet', 'PoE'),
-    link(swB.id, laptop.id, 'ethernet', ''),
-    // Star cluster C
-    link(swC.id, srv.id, 'ethernet', '1Gbps'),
-    link(swC.id, nas.id, 'ethernet', '1Gbps'),
-    // Star cluster D
-    link(swD.id, cam.id, 'ethernet', 'PoE'),
-    link(swD.id, phone.id, 'ethernet', 'PoE'),
-  ];
+  const links = nodes.map((device, portIndex) => tap(device, portIndex));
 
   return { nodes, links, barriers: [bus] };
 }
@@ -508,7 +468,7 @@ function polarXY(ax, ay, deg, r) {
 /** @type {TopologyPatternMeta[]} */
 export const TOPOLOGY_PATTERNS = [
   { id: 'star', label: 'Star Network', description: 'Central switch + 11 diverse endpoints', icon: '✶' },
-  { id: 'bus', label: 'Bus Network', description: '7-node backbone + 8 drop endpoints', icon: '▬' },
+  { id: 'bus', label: 'Bus Network', description: 'Single backbone + 8 direct device taps', icon: '▬' },
   { id: 'ring', label: 'Ring Network', description: '6-node redundant loop + endpoints', icon: '○' },
   { id: 'mesh', label: 'Mesh Network', description: '4-node full mesh + access layer', icon: '△' },
   { id: 'tree', label: 'Tree / Spine-Leaf', description: '3-tier hierarchy with 17 devices', icon: '⌇' },
