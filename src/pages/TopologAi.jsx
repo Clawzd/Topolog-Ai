@@ -1954,8 +1954,8 @@ export default function TopologAi() {
             />
           )}
 
-          {/* Minimap */}
-          {!EXPO_MODE && hasTopology && (
+          {/* Minimap — shown whenever there is topology (including expo / course build) */}
+          {hasTopology && (
             <MiniMap
               nodes={nodes} links={links} rooms={rooms} barriers={barriers} powerZones={powerZones}
               zoom={zoom} pan={pan} setPan={setPan}
