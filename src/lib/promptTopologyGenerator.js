@@ -227,8 +227,76 @@ function appendEnvironmentBarriers(topology, prompt) {
   };
 }
 
+const ROOM_KEYWORD_HINTS = [
+  { keywords: ['server room', 'data center', 'datacenter', 'server-room', 'idf', 'mdf', 'rack room'], label: 'Server Room', color: 'rgba(59,130,246,0.08)' },
+  { keywords: ['lobby', 'reception', 'front desk'], label: 'Lobby / Reception', color: 'rgba(245,158,11,0.08)' },
+  { keywords: ['office', 'workspace', 'open office', 'cubicle'], label: 'Office Area', color: 'rgba(20,184,166,0.08)' },
+  { keywords: ['classroom', 'lecture', 'student'], label: 'Classroom', color: 'rgba(139,92,246,0.08)' },
+  { keywords: ['lab', 'laboratory'], label: 'Lab', color: 'rgba(16,185,129,0.08)' },
+  { keywords: ['ward', 'patient', 'clinic', 'exam room'], label: 'Clinical Area', color: 'rgba(59,130,246,0.08)' },
+  { keywords: ['warehouse', 'dock', 'floor'], label: 'Warehouse Floor', color: 'rgba(245,158,11,0.08)' },
+  { keywords: ['guest', 'visitor'], label: 'Guest Area', color: 'rgba(245,158,11,0.08)' },
+  { keywords: ['security', 'cctv', 'surveillance'], label: 'Security Zone', color: 'rgba(239,68,68,0.08)' },
+  { keywords: ['conference', 'meeting'], label: 'Conference Room', color: 'rgba(139,92,246,0.08)' },
+  { keywords: ['kitchen', 'break room', 'cafeteria'], label: 'Break Area', color: 'rgba(16,185,129,0.08)' },
+];
+
+function synthesizeRoomsFromPrompt(topology, prompt) {
+  if ((topology.rooms || []).length > 0) return topology;
+  const nodes = topology.nodes || [];
+  if (!nodes.length) return topology;
+  const lower = String(prompt || '').toLowerCase();
+  const matched = ROOM_KEYWORD_HINTS.filter(({ keywords }) => keywords.some((k) => lower.includes(k)));
+  if (!matched.length) return topology;
+
+  // Wrap the whole topology in a single room labelled by the first match,
+  // or split nodes by infra-vs-endpoint when 2+ room keywords matched.
+  const { minX, maxX, minY, maxY } = getTopologyBounds(topology);
+  const pad = 60;
+
+  if (matched.length === 1) {
+    const room = {
+      id: generateId('r'),
+      label: matched[0].label,
+      x: Math.round(minX - pad),
+      y: Math.round(minY - pad),
+      w: Math.round(maxX - minX + pad * 2),
+      h: Math.round(maxY - minY + pad * 2),
+      color: matched[0].color,
+    };
+    return { ...topology, rooms: [room] };
+  }
+
+  // Multiple zone keywords: split horizontally into N rooms by node X position.
+  const sorted = [...nodes].sort((a, b) => a.x - b.x);
+  const chunkSize = Math.max(1, Math.ceil(sorted.length / matched.length));
+  const rooms = matched.slice(0, Math.min(matched.length, 4)).map((hint, i) => {
+    const chunk = sorted.slice(i * chunkSize, (i + 1) * chunkSize);
+    if (!chunk.length) return null;
+    let cMinX = Infinity, cMinY = Infinity, cMaxX = -Infinity, cMaxY = -Infinity;
+    for (const n of chunk) {
+      cMinX = Math.min(cMinX, n.x);
+      cMinY = Math.min(cMinY, n.y);
+      cMaxX = Math.max(cMaxX, n.x + 90);
+      cMaxY = Math.max(cMaxY, n.y + 56);
+    }
+    return {
+      id: generateId('r'),
+      label: hint.label,
+      x: Math.round(cMinX - pad),
+      y: Math.round(cMinY - pad),
+      w: Math.round(cMaxX - cMinX + pad * 2),
+      h: Math.round(cMaxY - cMinY + pad * 2),
+      color: hint.color,
+    };
+  }).filter(Boolean);
+
+  return { ...topology, rooms };
+}
+
 function finalizePromptTopology(topology, hint) {
-  return appendEnvironmentBarriers(topology, hint);
+  const withRooms = synthesizeRoomsFromPrompt(topology, hint);
+  return appendEnvironmentBarriers(withRooms, hint);
 }
 
 export function generatePromptTopology(userPrompt) {

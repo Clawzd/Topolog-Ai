@@ -128,20 +128,24 @@ export const DEVICE_TYPES = {
     },
   };
 
-  export const EXPO_SUPPORTED_DEVICE_TYPES = ['cloud', 'router', 'switch', 'firewall', 'ap', 'server', 'pc'];
+  // Expo mode supports the full device catalog so AI-generated VoIP phones,
+  // cameras, tablets, IoT gateways, etc. render with their proper icons
+  // instead of being collapsed into a generic workstation.
+  export const EXPO_SUPPORTED_DEVICE_TYPES = Object.keys(DEVICE_TYPES);
 
+  // Only kept for legacy node payloads that still use removed type names.
   const EXPO_DEVICE_TYPE_MAP = {
-    laptop: 'pc',
-    printer: 'pc',
-    camera: 'pc',
-    phone: 'pc',
-    tablet: 'pc',
-    smarttv: 'pc',
-    nas: 'server',
-    loadbalancer: 'server',
-    iot: 'server',
-    pdu: 'server',
-    patchpanel: 'switch',
+    workstation: 'pc',
+    desktop: 'pc',
+    notebook: 'laptop',
+    voip: 'phone',
+    ipcam: 'camera',
+    ipcamera: 'camera',
+    storage: 'nas',
+    accesspoint: 'ap',
+    wifi: 'ap',
+    lb: 'loadbalancer',
+    ups: 'pdu',
   };
 
   export function normalizeTopologyForExpo(topology = {}) {
