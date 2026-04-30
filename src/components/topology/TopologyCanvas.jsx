@@ -1098,15 +1098,6 @@ export default function TopologyCanvas({
     onContextMenuRequest && onContextMenuRequest(e.clientX, e.clientY, { type: 'canvas', item: null });
   };
 
-  const handleDoubleClick = (e) => {
-    if (mode !== 'select') return;
-    const { x, y } = svgToCanvas(e.clientX, e.clientY);
-    const clickedNode = interactiveNodes.find(n => x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H);
-    const clickedRoom = rooms.find(r => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
-    if (clickedNode || clickedRoom) return;
-    onNodeAdd && onNodeAdd('switch', x - NODE_W / 2, y - NODE_H / 2);
-  };
-
   const getModeClass = () => {
     if (mode === 'pan') return 'mode-pan';
     if (mode === 'place') return 'mode-place';
@@ -1711,7 +1702,6 @@ export default function TopologyCanvas({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
         style={{ background: TC.bg }}
       >

@@ -46,7 +46,7 @@ export default function EmptyState({ onTemplates, onDescribe }) {
 
         <div className="mt-8 flex items-center justify-center gap-2 text-[11px] text-muted-foreground/60">
           <ArrowDown className="h-3 w-3 animate-bounce" />
-          Drag components from the left panel or double-click canvas
+          Drag components from the left panel onto the canvas
         </div>
       </div>
     </div>
