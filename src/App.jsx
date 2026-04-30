@@ -4,6 +4,7 @@ import { queryClientInstance } from '@/lib/query-client';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import TopologAi from './pages/TopologAi';
+import Evaluation from './pages/Evaluation';
 
 export default function App() {
   return (
@@ -11,6 +12,7 @@ export default function App() {
       <Router>
         <Routes>
           <Route path="/" element={<TopologAi />} />
+          <Route path="/evaluation" element={<Evaluation />} />
           <Route path="*" element={<PageNotFound />} />
         </Routes>
       </Router>
