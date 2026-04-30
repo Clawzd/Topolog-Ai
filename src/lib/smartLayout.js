@@ -325,8 +325,9 @@ function findFreePosition(preferredX, preferredY, occupiedRects, barriers = []) 
 
   if (isFree(preferredX, preferredY)) return { x: preferredX, y: preferredY };
 
-  // Spiral search outward
-  for (let ring = 1; ring <= 20; ring++) {
+  // Spiral search outward — increased ring budget so dense AI layouts (30+
+  // nodes packed close together) still find a clean spot instead of stacking.
+  for (let ring = 1; ring <= 60; ring++) {
     const step = (NODE_W + NODE_PAD) * ring;
     const offsets = [
       [step, 0], [-step, 0], [0, step], [0, -step],
@@ -339,7 +340,14 @@ function findFreePosition(preferredX, preferredY, occupiedRects, barriers = []) 
       if (isFree(nx, ny)) return { x: nx, y: ny };
     }
   }
-  // Fallback: offset from preferred
+  // Fallback: scan a wide grid below/right of the cluster to guarantee no overlap.
+  for (let row = 0; row < 40; row++) {
+    for (let col = 0; col < 40; col++) {
+      const nx = preferredX + col * (NODE_W + NODE_PAD);
+      const ny = preferredY + row * (NODE_H + NODE_PAD);
+      if (isFree(nx, ny)) return { x: nx, y: ny };
+    }
+  }
   return { x: preferredX + 120, y: preferredY + 80 };
 }
 
