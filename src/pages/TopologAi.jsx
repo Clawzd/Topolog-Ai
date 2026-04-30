@@ -1885,7 +1885,7 @@ export default function TopologAi() {
               onExport={EXPO_MODE ? handleExportJson : () => setExportModalOpen(true)}
               onSimulateUptime={EXPO_MODE ? null : handleSimulateUptime}
               onSimulateDeviceStatus={EXPO_MODE ? null : handleSimulateDeviceStatus}
-              onOpenInsights={EXPO_MODE ? null : () => { setInsightsOpen(true); }}
+              onOpenInsights={() => setInsightsOpen(true)}
               onCollapseSidebars={EXPO_MODE ? null : () => {
                 setFocusMode(true);
                 setAiPanelOpen(false);
@@ -1962,12 +1962,13 @@ export default function TopologAi() {
             />
           )}
 
-          {!EXPO_MODE && hasTopology && insightsOpen && !focusMode && (
+          {hasTopology && insightsOpen && !focusMode && (
             <NetworkInsightsPanel
               nodes={nodes}
               links={links}
               vlans={vlans}
               smartSnapshot={smartSnapshot}
+              simple={EXPO_MODE}
               scoreHistory={scoreHistory}
               scoreDelta={scoreDelta}
               historySnapshots={history}

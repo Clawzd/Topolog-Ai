@@ -195,12 +195,10 @@ export default function TopBar({
         <div className="mx-1 hidden h-5 w-px bg-border/40 sm:block" />
 
         {/* Toggle buttons */}
-        {!expoMode && (
-          <HeaderBtn onClick={onToggleInsights} title={insightsOpen ? 'Hide insights' : 'Show insights'} variant={insightsOpen ? 'primary' : 'default'}>
-            <BrainCircuit className="h-3.5 w-3.5" />
-            <span className="hidden lg:inline">Insights</span>
-          </HeaderBtn>
-        )}
+        <HeaderBtn onClick={onToggleInsights} title={insightsOpen ? 'Hide network insights' : 'Show network insights'} variant={insightsOpen ? 'primary' : 'default'}>
+          <BrainCircuit className="h-3.5 w-3.5" />
+          <span className="hidden lg:inline">Insights</span>
+        </HeaderBtn>
         {!expoMode && (
           <HeaderBtn onClick={onToggleFocus} title={focusMode ? 'Exit focus mode' : 'Focus canvas'} variant={focusMode ? 'primary' : 'default'}>
             <Focus className="h-3.5 w-3.5" />

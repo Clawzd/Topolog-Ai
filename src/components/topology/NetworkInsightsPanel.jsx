@@ -118,6 +118,8 @@ export default function NetworkInsightsPanel({
   links,
   vlans,
   smartSnapshot,
+  /** Expo / slim UI: score, short findings list, short tips only — no history, actions, or path trace. */
+  simple = false,
   scoreHistory = [],
   scoreDelta = 0,
   historySnapshots = [],
@@ -222,6 +224,79 @@ export default function NetworkInsightsPanel({
       </div>
     </div>
   );
+
+  if (simple) {
+    const topFindings = mergedFindings.slice(0, 6);
+    const tips = [...insights.risks.slice(0, 2), ...insights.moves.slice(0, 3)].slice(0, 4);
+    return (
+      <aside
+        className="absolute bottom-3 left-3 z-20 flex max-h-[min(320px,48vh)] w-[min(272px,calc(100vw-10rem))] flex-col overflow-hidden rounded-xl border border-border/60 bg-card/95 shadow-xl shadow-black/30 backdrop-blur-md"
+      >
+        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-border/60 px-2.5 py-1.5">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Network className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
+            <span className="truncate text-[11px] font-semibold text-foreground">Network insights</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Hide"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-2.5">
+          <div className="flex gap-2">
+            <div className="origin-top-left scale-[0.72]">
+              <ScoreRing value={displayOverall} />
+            </div>
+            <div className="min-w-0 flex-1 space-y-0.5">
+              {bar('Coverage', scores.coverage)}
+              {bar('Capacity', scores.capacity)}
+              {bar('Security', scores.security)}
+              {bar('Resilience', scores.resilience)}
+              {bar('Power', scores.power)}
+            </div>
+          </div>
+          <div>
+            <div className="mb-1 flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <AlertTriangle className="h-2.5 w-2.5" />
+              Findings ({mergedFindings.length})
+            </div>
+            <div className="space-y-1">
+              {topFindings.map((item) => {
+                const sev = item.severity;
+                const dotColor = sev === 'high' ? 'bg-rose-400' : sev === 'medium' ? 'bg-amber-400' : 'bg-blue-400';
+                return (
+                  <div key={item.id} className="flex gap-1.5 rounded-md bg-muted/30 px-2 py-1.5 text-[9px] leading-snug text-muted-foreground">
+                    <span className={`mt-1 h-1 w-1 flex-shrink-0 rounded-full ${dotColor}`} />
+                    <span className="text-foreground/90">
+                      <span className="font-medium">{item.title}:</span> {item.detail}
+                    </span>
+                  </div>
+                );
+              })}
+              {!mergedFindings.length && (
+                <div className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-1.5 text-[9px] text-emerald-600 dark:text-emerald-300">
+                  <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
+                  No issues detected
+                </div>
+              )}
+            </div>
+          </div>
+          <div>
+            <div className="mb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Tips</div>
+            <ul className="space-y-1">
+              {tips.map((t, i) => (
+                <li key={i} className="text-[9px] leading-snug text-muted-foreground">→ {t}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside
