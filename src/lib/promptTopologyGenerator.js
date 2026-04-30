@@ -267,6 +267,19 @@ export function generatePromptTopology(userPrompt) {
 
   // Use smart recommendation based on prompt
   const rec = recommendTopology(hint);
+  if (rec.topology && rec.topology !== 'tree') {
+    const genId = { node: () => generateId('n'), link: () => generateId('l') };
+    const { nodes, links, barriers } = instantiateTopologyPattern(rec.topology, 400, 300, genId);
+    const meta = TOPOLOGY_PATTERNS.find((p) => p.id === rec.topology);
+    return finalizePromptTopology({
+      nodes,
+      links,
+      rooms: [],
+      vlans: [],
+      barriers: barriers || [],
+      summary: `${meta?.label || rec.topology} inferred for "${hint}". ${rec.reason} ${getScenarioNote(hint)}`,
+    }, hint);
+  }
 
   // Use enriched mock responses (they already have rooms, VLANs, etc.)
   const topology = MOCK_AI_RESPONSES.default(hint);

@@ -6,8 +6,12 @@
 const NODE_W = 90;
 const NODE_H = 56;
 const NODE_PAD = 24; // minimum gap between nodes
-const ROOM_PAD = 30; // padding inside room edges
+const ROOM_PAD = 72; // generous padding inside room edges for readable floorplans
 const ROOM_CLAIM_PAD = 8; // small tolerance for imperfect AI room coordinates
+const ENV_ROOM_GAP = 12;
+const MIN_ROOM_W = 360;
+const MIN_ROOM_H = 240;
+const ROOM_GAP = 32;
 
 /**
  * Check if two rectangles overlap (with padding).
@@ -49,6 +53,137 @@ function distToSegment(px, py, x1, y1, x2, y2) {
   let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
   t = Math.max(0, Math.min(1, t));
   return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function barrierCenter(barrier) {
+  if (barrier.shape === 'rect') {
+    return { x: (barrier.x || 0) + (barrier.w || 0) / 2, y: (barrier.y || 0) + (barrier.h || 0) / 2 };
+  }
+  return {
+    x: ((barrier.x1 ?? barrier.x ?? 0) + (barrier.x2 ?? barrier.x ?? 0)) / 2,
+    y: ((barrier.y1 ?? barrier.y ?? 0) + (barrier.y2 ?? barrier.y ?? 0)) / 2,
+  };
+}
+
+function labelWords(label) {
+  return String(label || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length > 2 && !['wall', 'room', 'zone', 'door', 'glass', 'concrete', 'partition'].includes(word));
+}
+
+function findBarrierRoom(barrier, rooms) {
+  if (!rooms.length) return null;
+  const barrierWords = labelWords(barrier.label);
+  const labelMatch = rooms
+    .map((room) => ({
+      room,
+      score: labelWords(room.label).filter((word) => barrierWords.includes(word)).length,
+    }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score)[0]?.room;
+  if (labelMatch) return labelMatch;
+
+  const center = barrierCenter(barrier);
+  return rooms
+    .map((room) => ({
+      room,
+      dist: Math.hypot(center.x - (room.x + room.w / 2), center.y - (room.y + room.h / 2)),
+    }))
+    .sort((a, b) => a.dist - b.dist)[0]?.room || rooms[0];
+}
+
+function roomEdgeLine(room, edgeIndex = 0) {
+  const edge = edgeIndex % 4;
+  if (edge === 0) {
+    return { x1: room.x - ENV_ROOM_GAP, y1: room.y + 16, x2: room.x - ENV_ROOM_GAP, y2: room.y + room.h - 16 };
+  }
+  if (edge === 1) {
+    return { x1: room.x + 16, y1: room.y - ENV_ROOM_GAP, x2: room.x + room.w - 16, y2: room.y - ENV_ROOM_GAP };
+  }
+  if (edge === 2) {
+    return { x1: room.x + room.w + ENV_ROOM_GAP, y1: room.y + 16, x2: room.x + room.w + ENV_ROOM_GAP, y2: room.y + room.h - 16 };
+  }
+  return { x1: room.x + 16, y1: room.y + room.h + ENV_ROOM_GAP, x2: room.x + room.w - 16, y2: room.y + room.h + ENV_ROOM_GAP };
+}
+
+function normalizeEnvironmentBarriers(barriers, rooms) {
+  if (!barriers?.length || !rooms?.length) return barriers || [];
+
+  const roomUseCount = new Map();
+  return barriers.map((barrier) => {
+    if (barrier.environmentKind === 'bus') return barrier;
+    const room = findBarrierRoom(barrier, rooms);
+    if (!room || barrier.shape !== 'line') return barrier;
+
+    const roomKey = room.id || room.label;
+    const useIndex = roomUseCount.get(roomKey) || 0;
+    roomUseCount.set(roomKey, useIndex + 1);
+
+    const centerX = room.x + room.w / 2;
+    const centerY = room.y + room.h / 2;
+    const kind = barrier.environmentKind || 'wall';
+
+    if (kind === 'door') {
+      return {
+        ...barrier,
+        x1: centerX - 24,
+        y1: room.y + room.h + ENV_ROOM_GAP,
+        x2: centerX + 24,
+        y2: room.y + room.h + ENV_ROOM_GAP,
+        blocksCablePath: false,
+      };
+    }
+
+    if (kind === 'window') {
+      return {
+        ...barrier,
+        x1: centerX - 36,
+        y1: room.y - ENV_ROOM_GAP,
+        x2: centerX + 36,
+        y2: room.y - ENV_ROOM_GAP,
+        blocksCablePath: false,
+      };
+    }
+
+    if (kind === 'noise') {
+      return {
+        ...barrier,
+        x1: Math.max(room.x + 18, centerX - 45),
+        y1: Math.max(room.y + 24, centerY - 12),
+        x2: Math.min(room.x + room.w - 18, centerX + 45),
+        y2: Math.max(room.y + 24, centerY - 12),
+      };
+    }
+
+    if (kind === 'conduit') {
+      return {
+        ...barrier,
+        x1: room.x + 24,
+        y1: room.y - ENV_ROOM_GAP * 2,
+        x2: room.x + room.w - 24,
+        y2: room.y - ENV_ROOM_GAP * 2,
+        blocksWifi: false,
+        blocksCablePath: false,
+      };
+    }
+
+    if (kind === 'obstacle') {
+      return {
+        ...barrier,
+        x1: room.x + room.w - 48,
+        y1: room.y + 36,
+        x2: room.x + room.w - 48,
+        y2: room.y + Math.min(room.h - 28, 120),
+      };
+    }
+
+    return {
+      ...barrier,
+      ...roomEdgeLine(room, useIndex),
+      blocksCablePath: barrier.blocksCablePath ?? true,
+    };
+  });
 }
 
 /**
@@ -136,7 +271,7 @@ export function applySmartLayout(topology, mapState = {}) {
 
   // Shift any AI-emitted barriers (e.g. bus backbones) by the same offset,
   // so they stay attached to the devices that reference them.
-  const adjustedBarriers = (topology.barriers || []).map((b) => {
+  const shiftedBarriers = (topology.barriers || []).map((b) => {
     if (offsetX === 0 && offsetY === 0) return b;
     const shifted = { ...b };
     if (typeof b.x1 === 'number') shifted.x1 = b.x1 + offsetX;
@@ -147,6 +282,7 @@ export function applySmartLayout(topology, mapState = {}) {
     if (typeof b.y === 'number') shifted.y = b.y + offsetY;
     return shifted;
   });
+  const adjustedBarriers = normalizeEnvironmentBarriers(shiftedBarriers, adjustedRooms);
 
   return {
     ...topology,
@@ -222,13 +358,13 @@ function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
       ...room,
       x: minX - ROOM_PAD,
       y: minY - ROOM_PAD,
-      w: maxX - minX + ROOM_PAD * 2,
-      h: maxY - minY + ROOM_PAD * 2,
+      w: Math.max(MIN_ROOM_W, maxX - minX + ROOM_PAD * 2),
+      h: Math.max(MIN_ROOM_H, maxY - minY + ROOM_PAD * 2),
     };
   });
 
   // Separation pass: push overlapping rooms apart (up to 10 iterations).
-  const GAP = 8; // minimum gap between room edges
+  const GAP = ROOM_GAP; // minimum gap between room edges
   for (let iter = 0; iter < 10; iter++) {
     let moved = false;
     for (let a = 0; a < sized.length; a++) {
@@ -266,31 +402,42 @@ function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
  */
 export function recommendTopology(prompt) {
   const t = (prompt || '').toLowerCase();
+  const numbers = [...t.matchAll(/\b(\d+)\b/g)].map((match) => Number(match[1])).filter(Number.isFinite);
+  const largestCount = numbers.length ? Math.max(...numbers) : null;
 
-  // High availability / redundancy -> mesh or ring
-  if (/\b(redundan|high.?avail|failover|ha\b|no.?single.?point)/i.test(t)) {
-    return { topology: 'mesh', reason: 'High availability requires redundant paths — mesh provides full interconnection.' };
+  // High availability / active-active designs -> mesh.
+  if (/\b(redundan|high.?avail|failover|ha\b|active.?active|no.?single.?point|mission.?critical|zero.?downtime|always.?on|dual.?core)/i.test(t)) {
+    return { topology: 'mesh', reason: 'High availability and zero-downtime wording calls for redundant interconnection between core devices.' };
   }
-  // Data center / server farm -> tree (spine-leaf)
-  if (/\b(data.?cent|spine.?leaf|rack|server.?farm|colo)/i.test(t)) {
-    return { topology: 'tree', reason: 'Data centers use hierarchical spine-leaf (tree) architecture for scalable east-west traffic.' };
+
+  // Carrier, MAN, and site-loop scenarios -> ring.
+  if (/\b(isp|carrier|metro|provider|wan|city|municipal|fiber.?path|fiber.?route|branches around|sites around|perimeter|looped path|regional offices)/i.test(t)) {
+    return { topology: 'ring', reason: 'Carrier, metro, and multi-site route wording implies a resilient loop between network sites.' };
   }
-  // Simple / small / home -> star
-  if (/\b(small|simple|home|soho|basic|minimal|single.?room)/i.test(t)) {
-    return { topology: 'star', reason: 'Small networks benefit from a simple star topology with a central switch.' };
+
+  // Linear physical placement -> bus.
+  if (/\b(linear|sequential|daisy|chain|assembly|production.?line|conveyor|bench row|lab bench|classroom bench|training lab|long corridor|shared cable|legacy lan|tap points?)/i.test(t)) {
+    return { topology: 'bus', reason: 'Devices arranged along a line, bench row, corridor, or shared medium fit a bus backbone.' };
   }
-  // Campus / multi-building -> hybrid
-  if (/\b(campus|multi.?build|enterprise|large|complex|mixed)/i.test(t)) {
-    return { topology: 'hybrid', reason: 'Large multi-site networks use hybrid topology combining star cores with bus/ring backbones.' };
+
+  // Small/local networks -> star.
+  if (/\b(small|simple|home|soho|basic|minimal|single.?room|front desk|tiny|clinic room|coffee shop|single office|one office|one room|reception)/i.test(t) || (largestCount != null && largestCount <= 12)) {
+    return { topology: 'star', reason: 'Small single-area networks are best represented by endpoints around one central switch or router.' };
   }
-  // ISP / backbone / WAN -> ring
-  if (/\b(isp|backbone|wan|carrier|metro|provider)/i.test(t)) {
-    return { topology: 'ring', reason: 'Provider/WAN networks use ring topology for redundant backbone paths.' };
+
+  // Mixed departments/buildings/security zones -> hybrid.
+  if (/\b(campus|multi.?build|enterprise|large|complex|mixed|department|departments|student|faculty|admin|warehouse|iot|guest|security|operations|multiple zones|separate zones|network segments|segmented)/i.test(t)) {
+    return { topology: 'hybrid', reason: 'Multiple zones, departments, or mixed wired/wireless/security needs fit a hybrid design.' };
   }
-  // Linear / sequential / daisy chain -> bus
-  if (/\b(linear|sequential|daisy|chain|assembly|production.?line)/i.test(t)) {
-    return { topology: 'bus', reason: 'Sequential environments benefit from bus topology with shared backbone.' };
+
+  // Data center / structured multi-tier buildings -> tree.
+  if (/\b(data.?cent|spine.?leaf|rack|server.?farm|colo|multi.?floor|multi.?story|3.?story|three.?story|building core|distribution closet|floor switches)/i.test(t)) {
+    return { topology: 'tree', reason: 'Data centers and multi-floor buildings benefit from a structured core/distribution/access hierarchy.' };
   }
-  // Default: tree for most office/general scenarios
-  return { topology: 'tree', reason: 'Hierarchical tree topology provides scalable, manageable network architecture for most scenarios.' };
+
+  if (largestCount != null && largestCount >= 24) {
+    return { topology: 'tree', reason: 'Larger endpoint counts need a scalable hierarchy unless another scenario strongly implies a different topology.' };
+  }
+
+  return { topology: 'star', reason: 'A general small-to-medium network defaults to a central hub-and-spoke design unless the prompt implies a larger structure.' };
 }

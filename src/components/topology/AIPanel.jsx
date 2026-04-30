@@ -11,13 +11,13 @@ import { patternIdFromPrompt } from '../../lib/topologyPatterns';
 import { recommendTopology } from '../../lib/smartLayout';
 
 const EXAMPLE_PROMPTS = [
-  'Small office with 15 employees, 2 departments, WiFi coverage throughout, glass meeting-room wall, drywall partitions, and one door to the server closet',
-  '3-story building with server room, VoIP phones, guest WiFi, concrete stairwell walls, cable conduit between floors, and windows along the office edge',
-  'Home office with NAS, IP cameras, mesh WiFi system, brick exterior walls, interior drywall, furniture obstacles, and a garage door opening',
-  'Retail store with POS terminals, guest WiFi, security cameras, glass storefront windows, metal shelving obstacles, stockroom wall, and checkout counter barrier',
-  'University campus with student, faculty, and admin network segments, separate rooms, concrete lab walls, glass faculty office partitions, doors, and RF noise near the cafeteria',
-  'Warehouse with IoT sensors, cameras, protected operations VLAN, metal racks as obstacles, concrete perimeter walls, loading dock doors, and cable tray raceways',
-  'Data center edge with redundant routers, firewalls, storage tier, server-room walls, hot/cold aisle rack obstacles, cable trays, and an RF-shielded secure cage',
+  'Small office with 15 employees, 2 departments, WiFi coverage throughout, a glass meeting-room wall, and one server-closet door',
+  '3-story building with server room, VoIP phones, guest WiFi, concrete stairwell walls, and cable conduit between floors',
+  'Home office with NAS, IP cameras, mesh WiFi system, brick exterior walls, and furniture obstacles near the living room',
+  'Retail store with POS terminals, guest WiFi, security cameras, glass storefront windows, and metal shelving obstacles',
+  'University campus with student, faculty, and admin network segments, separate rooms, concrete lab wall, faculty glass partition, and RF noise near the cafeteria',
+  'Warehouse with IoT sensors, cameras, protected operations VLAN, metal rack obstacles, loading dock doors, and cable tray raceways',
+  'Data center edge with redundant routers, firewalls, storage tier, server-room walls, cable trays, and an RF-shielded secure cage',
 ];
 
 const TOPOLOGY_LABELS = {
@@ -91,7 +91,6 @@ function describeRoomDevices(nodesInRoom) {
 
   const topTypes = [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 2)
     .map(([label, count]) => `${count} ${label}${count === 1 ? '' : 's'}`);
 
   return `${nodesInRoom.length} device${nodesInRoom.length === 1 ? '' : 's'}: ${topTypes.join(', ')}.`;
