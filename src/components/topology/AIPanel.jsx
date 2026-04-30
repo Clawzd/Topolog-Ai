@@ -342,8 +342,7 @@ const AIPanel = forwardRef(
             maxLength={4000}
             className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary resize-none leading-relaxed"
           />
-          <div className="flex items-center justify-between mt-1">
-            <p className="text-[9px] text-muted-foreground">⌘+Enter / Ctrl+Enter to generate (v3 §631)</p>
+          <div className="flex items-center justify-end mt-1">
             <span className="text-[9px] font-mono text-muted-foreground">{prompt.length} / 4000</span>
           </div>
           {error && <p className="text-[10px] text-destructive mt-1">{error}</p>}
