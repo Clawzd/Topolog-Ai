@@ -112,18 +112,112 @@ function roomEdgeLine(room, edgeIndex = 0) {
   return { x1: room.x + 16, y1: room.y + room.h + ENV_ROOM_GAP, x2: room.x + room.w - 16, y2: room.y + room.h + ENV_ROOM_GAP };
 }
 
+/**
+ * Pick the room edge (top/right/bottom/left) that best matches the AI's
+ * intended wall, based on (a) orientation — horizontal walls land on top/bottom,
+ * vertical walls land on left/right — and (b) proximity to that edge. Returns
+ * a snapped line whose length is the smaller of (AI length, room edge length)
+ * centred near the AI's original midpoint.
+ */
+function snapBarrierToBestEdge(barrier, room) {
+  const x1 = barrier.x1 ?? barrier.x ?? room.x;
+  const y1 = barrier.y1 ?? barrier.y ?? room.y;
+  const x2 = barrier.x2 ?? (barrier.x ?? room.x);
+  const y2 = barrier.y2 ?? (barrier.y ?? room.y);
+  const dx = Math.abs(x2 - x1);
+  const dy = Math.abs(y2 - y1);
+  const midX = (x1 + x2) / 2;
+  const midY = (y1 + y2) / 2;
+  const aiLen = Math.max(48, Math.hypot(x2 - x1, y2 - y1));
+  const horizontal = dx >= dy;
+
+  if (horizontal) {
+    const top = room.y - ENV_ROOM_GAP;
+    const bottom = room.y + room.h + ENV_ROOM_GAP;
+    const useTop = Math.abs(midY - room.y) <= Math.abs(midY - (room.y + room.h));
+    const edgeY = useTop ? top : bottom;
+    const edgeMinX = room.x + 16;
+    const edgeMaxX = room.x + room.w - 16;
+    const span = Math.min(aiLen, edgeMaxX - edgeMinX);
+    let cx = Math.min(Math.max(midX, edgeMinX + span / 2), edgeMaxX - span / 2);
+    return { x1: Math.round(cx - span / 2), y1: edgeY, x2: Math.round(cx + span / 2), y2: edgeY };
+  }
+  const left = room.x - ENV_ROOM_GAP;
+  const right = room.x + room.w + ENV_ROOM_GAP;
+  const useLeft = Math.abs(midX - room.x) <= Math.abs(midX - (room.x + room.w));
+  const edgeX = useLeft ? left : right;
+  const edgeMinY = room.y + 16;
+  const edgeMaxY = room.y + room.h - 16;
+  const span = Math.min(aiLen, edgeMaxY - edgeMinY);
+  let cy = Math.min(Math.max(midY, edgeMinY + span / 2), edgeMaxY - span / 2);
+  return { x1: edgeX, y1: Math.round(cy - span / 2), x2: edgeX, y2: Math.round(cy + span / 2) };
+}
+
+/**
+ * AI-emitted partitions/dividers/interior walls should keep their original
+ * position rather than snapping to the room perimeter. We just straighten them
+ * (force horizontal or vertical based on orientation) and clamp inside the room.
+ */
+function clampInteriorBarrierToRoom(barrier, room) {
+  const x1 = barrier.x1 ?? room.x + 24;
+  const y1 = barrier.y1 ?? room.y + 24;
+  const x2 = barrier.x2 ?? room.x + room.w - 24;
+  const y2 = barrier.y2 ?? room.y + room.h - 24;
+  const dx = Math.abs(x2 - x1);
+  const dy = Math.abs(y2 - y1);
+  const minX = room.x + 12;
+  const maxX = room.x + room.w - 12;
+  const minY = room.y + 12;
+  const maxY = room.y + room.h - 12;
+  if (dx >= dy) {
+    const yMid = Math.min(Math.max((y1 + y2) / 2, minY), maxY);
+    return {
+      x1: Math.min(Math.max(Math.min(x1, x2), minX), maxX),
+      x2: Math.min(Math.max(Math.max(x1, x2), minX), maxX),
+      y1: yMid,
+      y2: yMid,
+    };
+  }
+  const xMid = Math.min(Math.max((x1 + x2) / 2, minX), maxX);
+  return {
+    x1: xMid,
+    x2: xMid,
+    y1: Math.min(Math.max(Math.min(y1, y2), minY), maxY),
+    y2: Math.min(Math.max(Math.max(y1, y2), minY), maxY),
+  };
+}
+
+function isInteriorBarrierLabel(label) {
+  return /\b(interior|partition|divider|cubicle|inner|inside)\b/i.test(String(label || ''));
+}
+
+function pickEdgeKey(barrier, room) {
+  const x1 = barrier.x1 ?? barrier.x ?? room.x;
+  const y1 = barrier.y1 ?? barrier.y ?? room.y;
+  const x2 = barrier.x2 ?? (barrier.x ?? room.x);
+  const y2 = barrier.y2 ?? (barrier.y ?? room.y);
+  const dx = Math.abs(x2 - x1);
+  const dy = Math.abs(y2 - y1);
+  const midX = (x1 + x2) / 2;
+  const midY = (y1 + y2) / 2;
+  if (dx >= dy) {
+    return midY <= room.y + room.h / 2 ? 'top' : 'bottom';
+  }
+  return midX <= room.x + room.w / 2 ? 'left' : 'right';
+}
+
 function normalizeEnvironmentBarriers(barriers, rooms) {
   if (!barriers?.length || !rooms?.length) return barriers || [];
 
-  const roomUseCount = new Map();
+  const usedEdges = new Map(); // roomKey -> Set<edgeKey>
   return barriers.map((barrier) => {
     if (barrier.environmentKind === 'bus') return barrier;
     const room = findBarrierRoom(barrier, rooms);
     if (!room || barrier.shape !== 'line') return barrier;
 
     const roomKey = room.id || room.label;
-    const useIndex = roomUseCount.get(roomKey) || 0;
-    roomUseCount.set(roomKey, useIndex + 1);
+    if (!usedEdges.has(roomKey)) usedEdges.set(roomKey, new Set());
+    const used = usedEdges.get(roomKey);
 
     const centerX = room.x + room.w / 2;
     const centerY = room.y + room.h / 2;
@@ -174,18 +268,40 @@ function normalizeEnvironmentBarriers(barriers, rooms) {
     }
 
     if (kind === 'obstacle') {
+      // Keep AI-supplied length and orientation but clamp inside the room.
+      const clamped = clampInteriorBarrierToRoom(barrier, room);
+      return { ...barrier, ...clamped };
+    }
+
+    // Wall handling: interior partitions stay where the AI placed them
+    // (just clamped/straightened); perimeter walls snap to the best room edge
+    // chosen by orientation, with length preserved when possible and a
+    // round-robin fallback only if multiple walls collide on the same edge.
+    if (isInteriorBarrierLabel(barrier.label)) {
       return {
         ...barrier,
-        x1: room.x + room.w - 48,
-        y1: room.y + 36,
-        x2: room.x + room.w - 48,
-        y2: room.y + Math.min(room.h - 28, 120),
+        ...clampInteriorBarrierToRoom(barrier, room),
+        blocksCablePath: barrier.blocksCablePath ?? true,
       };
+    }
+
+    let edgeKey = pickEdgeKey(barrier, room);
+    if (used.has(edgeKey)) {
+      const fallback = ['top', 'right', 'bottom', 'left'].find((e) => !used.has(e));
+      if (fallback) edgeKey = fallback;
+    }
+    used.add(edgeKey);
+
+    let snapped;
+    if (edgeKey === 'top' || edgeKey === 'bottom') {
+      snapped = snapBarrierToBestEdge({ ...barrier, x1: barrier.x1 ?? barrier.x, x2: barrier.x2 ?? barrier.x, y1: edgeKey === 'top' ? room.y - 1 : room.y + room.h + 1, y2: edgeKey === 'top' ? room.y - 1 : room.y + room.h + 1 }, room);
+    } else {
+      snapped = snapBarrierToBestEdge({ ...barrier, y1: barrier.y1 ?? barrier.y, y2: barrier.y2 ?? barrier.y, x1: edgeKey === 'left' ? room.x - 1 : room.x + room.w + 1, x2: edgeKey === 'left' ? room.x - 1 : room.x + room.w + 1 }, room);
     }
 
     return {
       ...barrier,
-      ...roomEdgeLine(room, useIndex),
+      ...snapped,
       blocksCablePath: barrier.blocksCablePath ?? true,
     };
   });
