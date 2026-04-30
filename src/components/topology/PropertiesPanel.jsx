@@ -172,6 +172,14 @@ export default function PropertiesPanel({ expoMode = false, selectedId, nodes, l
   const change = (key, val) => setForm(f => ({ ...f, [key]: val }));
   const save = () => onUpdate(selectedId, form, type);
   const saveKey = (key, val) => { const updated = { ...form, [key]: val }; setForm(updated); onUpdate(selectedId, updated, type); };
+  /** Persist from functional state so label edits never use a stale `form` snapshot (fixes stuck / reverting name fields). */
+  const changeAndPersist = (key, val) => {
+    setForm((f) => {
+      const next = { ...f, [key]: val };
+      onUpdate(selectedId, next, type);
+      return next;
+    });
+  };
 
   const dt = selectedNode ? DEVICE_TYPES[form.type] || DEVICE_TYPES.pc : null;
   const lt = selectedLink ? LINK_TYPES[form.type] || LINK_TYPES.ethernet : null;
@@ -187,7 +195,7 @@ export default function PropertiesPanel({ expoMode = false, selectedId, nodes, l
   const typeLabel = { node: 'Device', link: 'Connection', room: 'Room', barrier: 'Barrier', vlanZone: 'Room overlay', powerZone: 'Power zone' };
 
   return (
-    <div className="w-64 bg-card border-l border-border flex flex-col overflow-hidden slide-in-right">
+    <div className="relative z-50 w-64 bg-card border-l border-border flex flex-col overflow-hidden slide-in-right">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card/80">
         <div className="flex items-center gap-2">
@@ -217,7 +225,7 @@ export default function PropertiesPanel({ expoMode = false, selectedId, nodes, l
             </div>
 
             <Section title="Identity">
-              <Field label="Name / Label" value={form.label} onChange={v => change('label', v)} onBlur={save} placeholder="Device name" />
+              <Field label="Name / Label" value={form.label} onChange={(v) => changeAndPersist('label', v)} placeholder="Device name" />
               <Field label="IP Address" value={form.ip} onChange={v => change('ip', v)} onBlur={save} placeholder="192.168.1.x" />
               {!expoMode && (
                 <Field label="Description" value={form.description} onChange={v => change('description', v)} onBlur={save} placeholder="Optional notes" />
@@ -459,7 +467,7 @@ export default function PropertiesPanel({ expoMode = false, selectedId, nodes, l
         {type === 'room' && (
           <>
             <Section title="Identity">
-              <Field label="Room Label" value={form.label} onChange={v => change('label', v)} onBlur={save} placeholder="Room name" />
+              <Field label="Room Label" value={form.label} onChange={(v) => changeAndPersist('label', v)} placeholder="Room name" />
             </Section>
 
             <Section title="Smart zone" defaultOpen={false}>

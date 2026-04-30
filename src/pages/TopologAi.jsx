@@ -1620,7 +1620,9 @@ export default function TopologAi() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      const ae = document.activeElement;
+      const tag = ae?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || ae?.isContentEditable) return;
       if (e.key === 'Escape') {
         setConnectingFrom(null);
         setMode('select');
@@ -1714,7 +1716,9 @@ export default function TopologAi() {
       }
     };
     const handleKeyUp = (e) => {
-      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      const ae = document.activeElement;
+      const tag = ae?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || ae?.isContentEditable) return;
       if (e.key === ' ' && spacebarPanRef.current.active) {
         e.preventDefault();
         const prev = spacebarPanRef.current.prevMode;
