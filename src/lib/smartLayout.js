@@ -12,6 +12,11 @@ const ENV_ROOM_GAP = 12;
 const MIN_ROOM_W = 360;
 const MIN_ROOM_H = 240;
 const ROOM_GAP = 32;
+const BUS_ENDPOINT_GAP = 132;
+const BUS_ROOM_PAD_X = 96;
+const BUS_ROOM_PAD_Y = 82;
+const BUS_TOP_ROW_GAP = 150;
+const BUS_BOTTOM_ROW_GAP = 92;
 
 /**
  * Check if two rectangles overlap (with padding).
@@ -394,6 +399,173 @@ function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
   }
 
   return sized;
+}
+
+function isBusBarrier(barrier) {
+  return barrier?.environmentKind === 'bus';
+}
+
+function linkTouchesBus(link, busId) {
+  return link?.busId === busId || link?.source === busId || link?.target === busId;
+}
+
+function otherBusEndpointId(link, busId) {
+  if (!linkTouchesBus(link, busId)) return null;
+  if (link.source === busId) return link.target;
+  if (link.target === busId) return link.source;
+  return link.source || link.target || null;
+}
+
+function promptExplicitlyAllowsBusInfrastructure(prompt, node) {
+  const text = String(prompt || '').toLowerCase();
+  const label = String(node?.label || '').toLowerCase();
+  const type = String(node?.type || '').toLowerCase();
+
+  if (type === 'cloud') return /\b(internet|isp|wan|cloud)\b/.test(text);
+  if (type === 'router') return /\b(router|gateway|wan|internet|edge)\b/.test(text);
+  if (type === 'firewall') return /\b(firewall|security|secure|dmz)\b/.test(text);
+  if (type === 'switch') return /\b(switch|hub|concentrator)\b/.test(text) && /\b(bus|shared cable|legacy lan)\b/.test(text);
+  if (/\b(core|distribution|access switch|edge router|firewall|internet)\b/.test(label)) {
+    return /\b(enterprise|hybrid|wan|internet|firewall|router|switch)\b/.test(text);
+  }
+  return false;
+}
+
+function busEndpointCandidates(topology, bus) {
+  const nodes = (topology.nodes || []).filter((node) => !node.isBusAnchor);
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const linkedIds = new Set(
+    (topology.links || [])
+      .map((link) => otherBusEndpointId(link, bus.id))
+      .filter((id) => id && nodeById.has(id)),
+  );
+
+  const endpointTypes = new Set(['pc', 'laptop', 'printer', 'server', 'camera', 'nas', 'phone', 'tablet', 'iot', 'smarttv', 'ap']);
+  const strictEndpoints = nodes.filter((node) => {
+    if (linkedIds.has(node.id) && endpointTypes.has(node.type)) return true;
+    if (linkedIds.has(node.id) && promptExplicitlyAllowsBusInfrastructure(topology._prompt, node)) return true;
+    return !linkedIds.size && endpointTypes.has(node.type);
+  });
+
+  if (strictEndpoints.length >= 2) return strictEndpoints;
+  return nodes.filter((node) => linkedIds.has(node.id) || endpointTypes.has(node.type));
+}
+
+function normalizeStrictBusTopology(topology, prompt = '') {
+  const barriers = topology.barriers || [];
+  const bus = barriers.find(isBusBarrier);
+  if (!bus) return topology;
+
+  const topologyWithPrompt = { ...topology, _prompt: prompt };
+  const endpoints = busEndpointCandidates(topologyWithPrompt, bus)
+    .filter((node) => !['switch', 'router', 'firewall', 'cloud', 'loadbalancer', 'pdu', 'patchpanel'].includes(node.type) || promptExplicitlyAllowsBusInfrastructure(prompt, node));
+
+  if (endpoints.length < 2) return topology;
+
+  const orderedEndpoints = [...endpoints].sort((a, b) => {
+    const ai = (topology.links || []).find((link) => linkTouchesBus(link, bus.id) && otherBusEndpointId(link, bus.id) === a.id)?.busPortIndex;
+    const bi = (topology.links || []).find((link) => linkTouchesBus(link, bus.id) && otherBusEndpointId(link, bus.id) === b.id)?.busPortIndex;
+    if (Number.isFinite(ai) && Number.isFinite(bi) && ai !== bi) return ai - bi;
+    return (a.x - b.x) || (a.y - b.y) || String(a.id).localeCompare(String(b.id));
+  });
+
+  const portCount = orderedEndpoints.length;
+  const busLength = Math.max(760, (portCount - 1) * BUS_ENDPOINT_GAP + 180);
+  const currentCenterX = typeof bus.x1 === 'number' && typeof bus.x2 === 'number'
+    ? (bus.x1 + bus.x2) / 2
+    : orderedEndpoints.reduce((sum, node) => sum + node.x + NODE_W / 2, 0) / orderedEndpoints.length;
+  const currentY = typeof bus.y1 === 'number' && typeof bus.y2 === 'number'
+    ? (bus.y1 + bus.y2) / 2
+    : orderedEndpoints.reduce((sum, node) => sum + node.y + NODE_H / 2, 0) / orderedEndpoints.length;
+  let x1 = Math.round(currentCenterX - busLength / 2);
+  let x2 = Math.round(currentCenterX + busLength / 2);
+  let y = Math.round(currentY);
+  const minBusX = BUS_ROOM_PAD_X + NODE_W / 2 + 24;
+  if (x1 < minBusX) {
+    const shift = minBusX - x1;
+    x1 += shift;
+    x2 += shift;
+  }
+  if (y - BUS_TOP_ROW_GAP - BUS_ROOM_PAD_Y < 24) {
+    y = BUS_TOP_ROW_GAP + BUS_ROOM_PAD_Y + 24;
+  }
+  const portStep = portCount > 1 ? busLength / (portCount - 1) : busLength;
+
+  const normalizedNodes = orderedEndpoints.map((node, index) => {
+    const portX = x1 + portStep * index;
+    const above = index % 2 === 0;
+    return {
+      ...node,
+      x: Math.round(portX - NODE_W / 2),
+      y: Math.round(above ? y - BUS_TOP_ROW_GAP : y + BUS_BOTTOM_ROW_GAP),
+    };
+  });
+
+  const normalizedBus = {
+    ...bus,
+    shape: 'line',
+    environmentKind: 'bus',
+    x1,
+    y1: y,
+    x2,
+    y2: y,
+    portCount,
+    label: bus.label || 'Bus Backbone',
+  };
+
+  const normalizedLinks = normalizedNodes.map((node, index) => {
+    const existing = (topology.links || []).find((link) => linkTouchesBus(link, bus.id) && otherBusEndpointId(link, bus.id) === node.id);
+    return {
+      ...(existing || {}),
+      id: existing?.id || `bus_tap_${node.id}`,
+      source: node.id,
+      target: normalizedBus.id,
+      busId: normalizedBus.id,
+      busPortIndex: index,
+      type: existing?.type === 'fiber' ? 'fiber' : 'ethernet',
+      label: existing?.label || 'Bus tap',
+    };
+  });
+
+  const nodeBounds = normalizedNodes.reduce((bounds, node) => ({
+    minX: Math.min(bounds.minX, node.x),
+    minY: Math.min(bounds.minY, node.y),
+    maxX: Math.max(bounds.maxX, node.x + NODE_W),
+    maxY: Math.max(bounds.maxY, node.y + NODE_H),
+  }), { minX: x1, minY: y, maxX: x2, maxY: y });
+
+  const busBounds = {
+    minX: Math.min(nodeBounds.minX, x1),
+    minY: Math.min(nodeBounds.minY, y),
+    maxX: Math.max(nodeBounds.maxX, x2),
+    maxY: Math.max(nodeBounds.maxY, y),
+  };
+
+  const normalizedRooms = (topology.rooms || []).length === 1
+    ? [{
+      ...topology.rooms[0],
+      x: busBounds.minX - BUS_ROOM_PAD_X,
+      y: busBounds.minY - BUS_ROOM_PAD_Y,
+      w: Math.max(MIN_ROOM_W, busBounds.maxX - busBounds.minX + BUS_ROOM_PAD_X * 2),
+      h: Math.max(MIN_ROOM_H, busBounds.maxY - busBounds.minY + BUS_ROOM_PAD_Y * 2),
+    }]
+    : autoSizeRooms(topology.rooms || [], normalizedNodes, 0, 0);
+
+  return {
+    ...topology,
+    nodes: normalizedNodes,
+    links: normalizedLinks,
+    rooms: normalizedRooms,
+    barriers: [
+      normalizedBus,
+      ...barriers.filter((barrier) => barrier.id !== bus.id && !isBusBarrier(barrier)),
+    ],
+  };
+}
+
+export function normalizeTopologyForInferredShape(topology, topologyType, prompt = '') {
+  if (topologyType === 'bus') return normalizeStrictBusTopology(topology, prompt);
+  return topology;
 }
 
 /**

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { DEVICE_TYPES, LINK_TYPES } from '../../lib/topologyData';
-import { Trash2, Network, Link2, Square, ChevronDown, BrickWall, Layers, Zap } from 'lucide-react';
+import { Trash2, Network, Link2, Square, ChevronDown, BrickWall, Layers, Zap, Check } from 'lucide-react';
 import { mergeRoomDefaults, mergeBarrierDefaults } from '../../lib/smartNetworkEngine';
 
 /** Match TopologyCanvas NODE_W / NODE_H for overlap tests */
@@ -50,19 +50,101 @@ function Field({ label, value, onChange, onBlur, type = 'text', placeholder = ''
 }
 
 function SelectField({ label, value, onChange, options }) {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const rootRef = useRef(null);
+  const normalizedValue = value ?? '';
+  const allOptions = [{ value: '', label: '- None -' }, ...options];
+  const selectedIndex = Math.max(0, allOptions.findIndex((option) => option.value === normalizedValue));
+  const selected = allOptions[selectedIndex] || allOptions[0];
+
+  useEffect(() => {
+    if (!open) return undefined;
+    setActiveIndex(selectedIndex);
+
+    const closeOnOutsideClick = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, [open, selectedIndex]);
+
+  const choose = (option) => {
+    onChange(option.value);
+    setOpen(false);
+  };
+
+  const onKeyDown = (event) => {
+    if (!open && ['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
+      event.preventDefault();
+      setOpen(true);
+      return;
+    }
+
+    if (!open) return;
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setOpen(false);
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex((index) => Math.min(allOptions.length - 1, index + 1));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((index) => Math.max(0, index - 1));
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      choose(allOptions[activeIndex] || selected);
+    } else if (event.key === 'Tab') {
+      setOpen(false);
+    }
+  };
+
   return (
-    <div>
+    <div ref={rootRef} className="relative">
       <label className="block text-[10px] text-muted-foreground mb-1">{label}</label>
-      <select
-        value={value || ''}
-        onChange={e => onChange(e.target.value)}
-        className="w-full bg-muted/60 border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary transition-colors"
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((next) => !next)}
+        onKeyDown={onKeyDown}
+        className="w-full flex items-center justify-between gap-2 bg-muted/60 border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground hover:bg-muted/80 focus:outline-none focus:border-primary transition-colors"
       >
-        <option value="">- None -</option>
-        {options.map(o => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
+        <span className="truncate">{selected.label}</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          tabIndex={-1}
+          className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-64 overflow-y-auto rounded-lg border border-border bg-card shadow-2xl shadow-black/40 p-1"
+          onKeyDown={onKeyDown}
+        >
+          {allOptions.map((option, index) => {
+            const selectedOption = option.value === normalizedValue;
+            const active = index === activeIndex;
+            return (
+              <button
+                key={`${option.value}-${option.label}`}
+                type="button"
+                role="option"
+                aria-selected={selectedOption}
+                onMouseEnter={() => setActiveIndex(index)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => choose(option)}
+                className={`w-full flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+                  active ? 'bg-primary/15 text-foreground' : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+                }`}
+              >
+                <span className="truncate">{option.label}</span>
+                {selectedOption && <Check className="h-3.5 w-3.5 text-primary" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

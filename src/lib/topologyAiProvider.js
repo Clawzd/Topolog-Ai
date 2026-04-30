@@ -1,5 +1,5 @@
 import { generatePromptTopology } from './promptTopologyGenerator';
-import { applySmartLayout, recommendTopology } from './smartLayout';
+import { applySmartLayout, normalizeTopologyForInferredShape, recommendTopology } from './smartLayout';
 import { expandBusLinksForCanvas } from './busExpansion';
 
 const TOPOLOGY_SCHEMA = {
@@ -162,6 +162,13 @@ function sanitizeGeneratedTopology(topology, prompt) {
     ...normalized,
     barriers: normalized.barriers.filter((barrier) => barrier.environmentKind === 'bus'),
   };
+}
+
+function finalizeGeneratedTopology(topology, prompt, mapState) {
+  const recommendation = recommendTopology(prompt);
+  const laidOut = applySmartLayout(topology, mapState);
+  const normalized = normalizeTopologyForInferredShape(laidOut, recommendation.topology, prompt);
+  return expandBusLinksForCanvas(normalized);
 }
 
 function sanitizeEditResponse(edit, prompt) {
@@ -697,17 +704,17 @@ export async function generateTopologyFromPrompt(prompt, mapState) {
   const config = getDeepSeekConfig();
   if (!config.enabled) {
     const topology = sanitizeGeneratedTopology(generatePromptTopology(prompt), prompt);
-    return expandBusLinksForCanvas(applySmartLayout(topology, mapState));
+    return finalizeGeneratedTopology(topology, prompt, mapState);
   }
 
   try {
     const topology = sanitizeGeneratedTopology(await generateWithDeepSeek(prompt, mapState), prompt);
-    return expandBusLinksForCanvas(applySmartLayout(topology, mapState));
+    return finalizeGeneratedTopology(topology, prompt, mapState);
   } catch (error) {
     console.warn(error);
     const fallback = sanitizeGeneratedTopology(generatePromptTopology(prompt), prompt);
     return {
-      ...expandBusLinksForCanvas(applySmartLayout(fallback, mapState)),
+      ...finalizeGeneratedTopology(fallback, prompt, mapState),
       summary: 'DeepSeek generation failed, so TopologAi used the local generator instead.',
     };
   }
