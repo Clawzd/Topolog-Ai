@@ -25,19 +25,32 @@ const TOPOLOGY_SCHEMA = {
       portCount: 8,
       label: 'Office Bus Backbone',
     },
-    {
-      id: 'wall1',
-      shape: 'line',
-      environmentKind: 'wall',
-      barrierType: 'concrete',
-      thickness: 'medium',
-      blocksWifi: true,
-      blocksCablePath: true,
-      x1: 320, y1: 120, x2: 320, y2: 640,
-      label: 'Concrete partition wall',
-    },
   ],
   summary: 'Short design summary.',
+};
+
+const EDIT_RESPONSE_SCHEMA = {
+  summary: 'Short explanation of the edit that will be applied.',
+  operations: [
+    {
+      op: 'move_node',
+      id: 'existing-node-id',
+      x: 420,
+      y: 260,
+    },
+    {
+      op: 'add_node',
+      node: { tempId: 'new_ap_1', type: 'ap', label: 'AP - Student Lab', x: 240, y: 520, ip: '10.0.30.12', vlan: 'STUDENT' },
+    },
+    {
+      op: 'add_link',
+      link: { source: 'new_ap_1', target: 'existing-switch-id', type: 'ethernet', label: 'PoE' },
+    },
+    {
+      op: 'delete_barrier',
+      id: 'existing-wall-id',
+    },
+  ],
 };
 
 /** Trim and strip optional matching quotes (common in hand-edited `.env`). */
@@ -111,6 +124,103 @@ function normalizeTopology(topology) {
   };
 }
 
+function promptRequestsPhysicalEnvironment(prompt) {
+  const text = String(prompt || '').toLowerCase();
+  return [
+    /\bwall(s)?\b/,
+    /\bbarrier(s)?\b/,
+    /\bpartition wall(s)?\b/,
+    /\bphysical partition(s)?\b/,
+    /\bconcrete\b/,
+    /\bbrick\b/,
+    /\bglass wall(s)?\b/,
+    /\bglass partition(s)?\b/,
+    /\bdoor(s)?\b/,
+    /\bwindow(s)?\b/,
+    /\bobstacle(s)?\b/,
+    /\bfurniture\b/,
+    /\bshelf\b|\bshelves\b/,
+    /\bcabinet(s)?\b/,
+    /\bnoise source(s)?\b/,
+    /\brf noise\b/,
+    /\binterference\b/,
+    /\bmicrowave\b/,
+    /\bconduit(s)?\b/,
+    /\braceway(s)?\b/,
+    /\bcable tray(s)?\b/,
+    /\bduct(s)?\b/,
+    /\bfaraday\b/,
+    /\brf shield\b/,
+  ].some((pattern) => pattern.test(text));
+}
+
+function sanitizeGeneratedTopology(topology, prompt) {
+  const normalized = normalizeTopology(topology);
+  if (promptRequestsPhysicalEnvironment(prompt)) return normalized;
+
+  return {
+    ...normalized,
+    barriers: normalized.barriers.filter((barrier) => barrier.environmentKind === 'bus'),
+  };
+}
+
+function sanitizeEditResponse(edit, prompt) {
+  const operations = Array.isArray(edit?.operations) ? edit.operations : [];
+  const physicalEnvironmentAllowed = promptRequestsPhysicalEnvironment(prompt);
+
+  return {
+    summary: edit?.summary || 'Updated the current topology.',
+    operations: operations
+      .map((operation) => {
+        if (operation?.op === 'replace_canvas' && operation.topology) {
+          return {
+            ...operation,
+            topology: sanitizeGeneratedTopology(operation.topology, prompt),
+          };
+        }
+        return operation;
+      })
+      .filter((operation) => {
+        if (!operation || typeof operation.op !== 'string') return false;
+        if (operation.op !== 'add_barrier') return true;
+        const barrier = operation.barrier || operation.item || operation;
+        return physicalEnvironmentAllowed || barrier.environmentKind === 'bus';
+      }),
+  };
+}
+
+function hasCanvasContent(mapState) {
+  return Boolean(
+    (mapState?.nodes || []).length ||
+    (mapState?.links || []).length ||
+    (mapState?.rooms || []).length ||
+    (mapState?.barriers || []).length ||
+    (mapState?.vlans || []).length,
+  );
+}
+
+function compactCanvasSnapshot(mapState = {}) {
+  const cleanItems = (items, fields) =>
+    (items || []).map((item) =>
+      fields.reduce((acc, field) => {
+        if (item[field] !== undefined && item[field] !== null && item[field] !== '') {
+          acc[field] = item[field];
+        }
+        return acc;
+      }, {}),
+    );
+
+  return {
+    nodes: cleanItems(mapState.nodes, ['id', 'type', 'label', 'x', 'y', 'ip', 'vlan', 'isBusAnchor', 'busId', 'supportedVlans']),
+    links: cleanItems(mapState.links, ['id', 'source', 'target', 'type', 'label', 'busId', 'busPortIndex', 'sourceBusAnchorId', 'targetBusAnchorId', 'poe', 'trunkVlans']),
+    rooms: cleanItems(mapState.rooms, ['id', 'label', 'x', 'y', 'w', 'h', 'color']),
+    vlans: cleanItems(mapState.vlans, ['id', 'name', 'label', 'color', 'subnet']),
+    barriers: cleanItems(mapState.barriers, ['id', 'shape', 'environmentKind', 'barrierType', 'thickness', 'blocksWifi', 'blocksCablePath', 'x', 'y', 'w', 'h', 'x1', 'y1', 'x2', 'y2', 'portCount', 'label']),
+    vlanZones: cleanItems(mapState.vlanZones, ['id', 'label', 'vlan', 'x', 'y', 'w', 'h', 'color']),
+    powerZones: cleanItems(mapState.powerZones, ['id', 'label', 'x', 'y', 'w', 'h', 'capacity']),
+  };
+}
+
 /**
  * Build a compact map context string for the AI so it knows what's already on the canvas.
  */
@@ -168,6 +278,7 @@ function buildSystemPrompt(mapState) {
     '',
     '## ENVIRONMENT / BARRIER TYPES (optional when requested):',
     'Use `barriers` for physical/environment elements with `shape:"line"` when the prompt asks for them.',
+    'Do not include wall, door, window, noise, conduit, or obstacle barriers unless the user explicitly asks for physical environment elements. Network segments, VLAN segments, departments, and rooms do not mean walls.',
     '- `environmentKind:"wall"` for walls and partitions with materials like drywall, glass, brick, concrete, metal, wood, water, or rf_shield.',
     '- `environmentKind:"door"` for doors and openings.',
     '- `environmentKind:"window"` for windows or glass spans.',
@@ -243,12 +354,19 @@ function buildSystemPrompt(mapState) {
     '## ROOM RULES',
     '- Create rooms/zones to logically group devices (e.g., Server Room, Office Area, Security Zone).',
     '- Room must be large enough to contain ALL its devices with 30px padding on each side.',
+    '- Rooms must not overlap each other. Leave at least 16px gap between room rectangles.',
+    '- Put endpoint devices physically inside the matching room rectangle. Do not put core/distribution switches inside endpoint rooms unless the room label says IDF, closet, rack, or server.',
+    '- Keep cloud/ISP, firewall, core routers, and distribution switches outside user rooms unless explicitly requested.',
+    '- Room label must match its contents: Student Lab contains student endpoints, Faculty Office contains faculty endpoints, Admin Office contains admin endpoints.',
     '- Room color should use rgba with 0.08 alpha for subtle background.',
     '- Use distinct colors per room: teal rgba(20,184,166,0.08), blue rgba(59,130,246,0.08), purple rgba(139,92,246,0.08), amber rgba(245,158,11,0.08), red rgba(239,68,68,0.08), green rgba(16,185,129,0.08).',
     '',
     '## ENVIRONMENT RULES',
     '- If the prompt mentions walls, barriers, thick concrete, glass partitions, doors, windows, obstacles, interference, or conduit/raceway, include matching `barriers` entries.',
+    '- If the prompt only mentions network segmentation, VLANs, departments, offices, labs, or rooms, do NOT add walls or other physical barriers.',
     '- Keep environment lines near the relevant rooms or between zones so they explain the floorplan.',
+    '- Do not draw environment lines across unrelated rooms or through the topology core. A staff-room wall belongs inside or directly around the staff room.',
+    '- For U-shaped or multi-segment walls, emit separate straight `barriers` entries for each segment with clear labels.',
     '- Concrete, brick, and metal walls should normally use `blocksWifi:true`; walls and obstacles should usually use `blocksCablePath:true`.',
     '- Doors and windows should usually use `blocksCablePath:false` and lighter materials like drywall or glass.',
     '- Do not place devices directly on top of barriers.',
@@ -264,6 +382,41 @@ function buildSystemPrompt(mapState) {
     '- Every requested device category must be represented.',
     mapContext,
   ].filter(Boolean).join('\n');
+}
+
+function buildEditSystemPrompt(mapState) {
+  return [
+    'You are TopologAi, an expert network topology editor. The user already has a canvas. Return edit operations that modify the existing canvas in place.',
+    '',
+    '## OUTPUT FORMAT',
+    'Return ONLY valid JSON (no markdown, no explanation). Schema:',
+    JSON.stringify(EDIT_RESPONSE_SCHEMA),
+    '',
+    '## CANVAS SNAPSHOT',
+    JSON.stringify(compactCanvasSnapshot(mapState)),
+    '',
+    '## ALLOWED OPERATIONS',
+    'add_node, add_link, add_room, add_barrier, update_node, update_link, update_room, update_barrier, delete_node, delete_link, delete_room, delete_barrier, move_node, move_room, move_barrier, replace_canvas',
+    '',
+    '## EDIT RULES',
+    '- Use existing IDs from the snapshot when updating, moving, linking, or deleting existing items.',
+    '- For newly added nodes/barriers/rooms/links, use tempId only when another operation needs to reference it. The app will generate final IDs.',
+    '- "add" means append to the existing canvas.',
+    '- "delete", "remove", or "get rid of" means delete only the requested existing item and any dangling links.',
+    '- "move", "relocate", "shift", "put", or "place" means move existing items, not duplicate them.',
+    '- "rename", "change name", or "call it" means update the label field.',
+    '- "replace", "redesign", "start over", or "make this a ..." means use one replace_canvas operation with a full topology.',
+    '- If a user names an item by label, match the closest existing label and use its ID.',
+    '- Prefer precise operations over replace_canvas unless the user clearly asks for a full redesign.',
+    '- Keep existing object IDs; never invent an ID for an existing item.',
+    '',
+    '## ENVIRONMENT SAFETY',
+    '- Do not add wall, door, window, noise, conduit, or obstacle barriers unless the user explicitly asks for physical environment elements.',
+    '- Network segments, VLANs, departments, offices, labs, and rooms do not mean physical walls.',
+    '',
+    '## REPLACE_CANVAS TOPOLOGY SCHEMA',
+    JSON.stringify(TOPOLOGY_SCHEMA),
+  ].join('\n');
 }
 
 async function generateWithDeepSeek(prompt, mapState) {
@@ -313,6 +466,224 @@ async function generateWithDeepSeek(prompt, mapState) {
   return normalizeTopology(extractJson(content));
 }
 
+async function generateEditsWithDeepSeek(prompt, mapState) {
+  const config = getDeepSeekConfig();
+  const useDevProxy = !!import.meta.env.DEV;
+  const path = '/chat/completions';
+  const url = useDevProxy
+    ? `/deepseek-api${path}`
+    : `${config.baseUrl.replace(/\/$/, '')}${path}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(useDevProxy ? {} : { Authorization: `Bearer ${config.apiKey}` }),
+    },
+    body: JSON.stringify({
+      model: config.model,
+      stream: false,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: buildEditSystemPrompt({ ...mapState, _userPrompt: prompt }),
+        },
+        {
+          role: 'user',
+          content: `Apply this change to the current canvas: ${prompt}`,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const errBody = await response.text();
+      if (errBody) detail = ` â€” ${errBody.slice(0, 200)}`;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`DeepSeek edit request failed: ${response.status}${detail}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error('DeepSeek returned an empty edit response.');
+  return sanitizeEditResponse(extractJson(content), prompt);
+}
+
+const DEVICE_WORDS = {
+  ap: ['ap', 'access point', 'wifi', 'wi-fi'],
+  printer: ['printer'],
+  server: ['server'],
+  firewall: ['firewall'],
+  router: ['router'],
+  switch: ['switch'],
+  pc: ['pc', 'workstation', 'desktop', 'computer'],
+  laptop: ['laptop'],
+  camera: ['camera'],
+  nas: ['nas', 'storage'],
+  phone: ['phone', 'voip'],
+};
+
+function includesAny(text, words) {
+  return words.some((word) => text.includes(word));
+}
+
+function requestedDeviceType(text) {
+  return Object.entries(DEVICE_WORDS).find(([, words]) => includesAny(text, words))?.[0] || 'pc';
+}
+
+function requestedCount(text) {
+  const numeric = text.match(/\b(\d+)\b/);
+  if (numeric) return Math.min(12, Math.max(1, Number(numeric[1])));
+  const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+  return Object.entries(words).find(([word]) => new RegExp(`\\b${word}\\b`).test(text))?.[1] || 1;
+}
+
+function scoreLabelMatch(item, text) {
+  const label = String(item?.label || item?.name || '').toLowerCase();
+  if (!label) return 0;
+  if (text.includes(label)) return 100;
+  return label
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length > 2 && text.includes(word))
+    .length;
+}
+
+function bestMatch(items, text, predicate = () => true) {
+  return (items || [])
+    .filter(predicate)
+    .map((item) => ({ item, score: scoreLabelMatch(item, text) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score)[0]?.item || null;
+}
+
+function findTargetNode(mapState, text) {
+  const type = requestedDeviceType(text);
+  return bestMatch(mapState.nodes, text, (node) => node.type === type && !node.isBusAnchor)
+    || bestMatch(mapState.nodes, text, (node) => !node.isBusAnchor)
+    || null;
+}
+
+function findTargetRoom(mapState, text) {
+  return bestMatch(mapState.rooms, text) || null;
+}
+
+function findTargetBarrier(mapState, text) {
+  if (/\bwall(s)?\b/.test(text)) {
+    return bestMatch(mapState.barriers, text, (barrier) => barrier.environmentKind === 'wall')
+      || (mapState.barriers || []).find((barrier) => barrier.environmentKind === 'wall')
+      || null;
+  }
+  if (/\bbus\b|\bbackbone\b/.test(text)) {
+    return bestMatch(mapState.barriers, text, (barrier) => barrier.environmentKind === 'bus')
+      || (mapState.barriers || []).find((barrier) => barrier.environmentKind === 'bus')
+      || null;
+  }
+  return bestMatch(mapState.barriers, text) || null;
+}
+
+function roomCenter(room) {
+  return { x: (room?.x || 120) + (room?.w || 260) / 2, y: (room?.y || 120) + (room?.h || 180) / 2 };
+}
+
+function nearestSwitch(mapState, room) {
+  const switches = (mapState.nodes || []).filter((node) => node.type === 'switch' && !node.isBusAnchor);
+  if (!switches.length) return null;
+  const anchor = roomCenter(room);
+  return switches
+    .map((node) => ({ node, dist: Math.hypot((node.x || 0) - anchor.x, (node.y || 0) - anchor.y) }))
+    .sort((a, b) => a.dist - b.dist)[0]?.node || null;
+}
+
+async function generateLocalEditOperations(prompt, mapState) {
+  const text = String(prompt || '').toLowerCase();
+  if (!hasCanvasContent(mapState)) {
+    return { summary: 'No existing canvas was available, so no edit was applied.', operations: [] };
+  }
+
+  if (/\b(replace|redesign|start over|start again|rebuild)\b/.test(text)) {
+    const topology = await generateTopologyFromPrompt(prompt, undefined);
+    return {
+      summary: 'Replaced the current canvas with a newly generated topology.',
+      operations: [{ op: 'replace_canvas', topology }],
+    };
+  }
+
+  if (/\b(delete|remove|get rid of)\b/.test(text)) {
+    const barrier = findTargetBarrier(mapState, text);
+    if (barrier) return { summary: `Removed ${barrier.label || barrier.environmentKind || 'barrier'}.`, operations: [{ op: 'delete_barrier', id: barrier.id }] };
+    const node = findTargetNode(mapState, text);
+    if (node) return { summary: `Removed ${node.label || node.type}.`, operations: [{ op: 'delete_node', id: node.id }] };
+    const room = findTargetRoom(mapState, text);
+    if (room) return { summary: `Removed ${room.label || 'room'}.`, operations: [{ op: 'delete_room', id: room.id }] };
+    return { summary: 'I could not find a matching item to remove.', operations: [] };
+  }
+
+  if (/\b(rename|change name|call it)\b/.test(text)) {
+    const nextLabel = prompt.match(/\b(?:to|as|it)\s+["']?([^"']+?)["']?\s*$/i)?.[1]?.trim();
+    const target = findTargetRoom(mapState, text) || findTargetNode(mapState, text) || findTargetBarrier(mapState, text);
+    if (target && nextLabel) {
+      const op = (mapState.rooms || []).some((room) => room.id === target.id)
+        ? 'update_room'
+        : (mapState.barriers || []).some((barrier) => barrier.id === target.id)
+          ? 'update_barrier'
+          : 'update_node';
+      return { summary: `Renamed ${target.label || target.id} to ${nextLabel}.`, operations: [{ op, id: target.id, fields: { label: nextLabel } }] };
+    }
+  }
+
+  if (/\b(move|relocate|shift|place|put)\b/.test(text)) {
+    const dx = /\bleft\b/.test(text) ? -160 : /\bright\b/.test(text) ? 160 : 0;
+    const dy = /\bup\b|\babove\b/.test(text) ? -120 : /\bdown\b|\bbelow\b/.test(text) ? 120 : 0;
+    const room = findTargetRoom(mapState, text);
+    if (room) return { summary: `Moved ${room.label || 'room'}.`, operations: [{ op: 'move_room', id: room.id, dx, dy }] };
+    const barrier = findTargetBarrier(mapState, text);
+    if (barrier) return { summary: `Moved ${barrier.label || 'barrier'}.`, operations: [{ op: 'move_barrier', id: barrier.id, dx, dy }] };
+    const node = findTargetNode(mapState, text);
+    if (node) return { summary: `Moved ${node.label || node.type}.`, operations: [{ op: 'move_node', id: node.id, dx, dy }] };
+  }
+
+  if (/\b(add|create|insert|put)\b/.test(text)) {
+    const type = requestedDeviceType(text);
+    const count = requestedCount(text);
+    const room = findTargetRoom(mapState, text);
+    const targetSwitch = nearestSwitch(mapState, room);
+    const base = roomCenter(room);
+    const operations = [];
+
+    for (let i = 0; i < count; i++) {
+      const tempId = `new_${type}_${i + 1}`;
+      const x = Math.round(base.x - 45 + (i % 3) * 120);
+      const y = Math.round(base.y - 28 + Math.floor(i / 3) * 96);
+      operations.push({
+        op: 'add_node',
+        node: {
+          tempId,
+          type,
+          label: `${type === 'ap' ? 'AP' : type.charAt(0).toUpperCase() + type.slice(1)}${room?.label ? ` - ${room.label}` : ''} ${i + 1}`,
+          x,
+          y,
+          ip: '',
+          vlan: null,
+        },
+      });
+      if (targetSwitch) {
+        operations.push({
+          op: 'add_link',
+          link: { source: tempId, target: targetSwitch.id, type: 'ethernet', label: type === 'ap' ? 'PoE' : '' },
+        });
+      }
+    }
+
+    return { summary: `Added ${count} ${type}${count === 1 ? '' : 's'}${room?.label ? ` to ${room.label}` : ''}.`, operations };
+  }
+
+  return { summary: 'I could not turn that refinement into a safe local edit.', operations: [] };
+}
+
 /**
  * Generate topology from prompt.
  * @param {string} prompt - User's description
@@ -321,20 +692,38 @@ async function generateWithDeepSeek(prompt, mapState) {
 export async function generateTopologyFromPrompt(prompt, mapState) {
   const config = getDeepSeekConfig();
   if (!config.enabled) {
-    const topology = generatePromptTopology(prompt);
+    const topology = sanitizeGeneratedTopology(generatePromptTopology(prompt), prompt);
     return expandBusLinksForCanvas(applySmartLayout(topology, mapState));
   }
 
   try {
-    const topology = await generateWithDeepSeek(prompt, mapState);
+    const topology = sanitizeGeneratedTopology(await generateWithDeepSeek(prompt, mapState), prompt);
     return expandBusLinksForCanvas(applySmartLayout(topology, mapState));
   } catch (error) {
     console.warn(error);
-    const fallback = generatePromptTopology(prompt);
+    const fallback = sanitizeGeneratedTopology(generatePromptTopology(prompt), prompt);
     return {
       ...expandBusLinksForCanvas(applySmartLayout(fallback, mapState)),
       summary: 'DeepSeek generation failed, so TopologAi used the local generator instead.',
     };
+  }
+}
+
+export async function generateTopologyEditsFromPrompt(prompt, mapState) {
+  const config = getDeepSeekConfig();
+  if (!hasCanvasContent(mapState)) {
+    return { summary: 'No existing topology is available to refine.', operations: [] };
+  }
+
+  if (!config.enabled) {
+    return sanitizeEditResponse(await generateLocalEditOperations(prompt, mapState), prompt);
+  }
+
+  try {
+    return sanitizeEditResponse(await generateEditsWithDeepSeek(prompt, mapState), prompt);
+  } catch (error) {
+    console.warn(error);
+    return sanitizeEditResponse(await generateLocalEditOperations(prompt, mapState), prompt);
   }
 }
 

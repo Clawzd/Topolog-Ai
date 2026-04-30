@@ -108,7 +108,7 @@ function makeLineBarrier(kind, label, x1, y1, x2, y2, overrides = {}) {
 
 function appendEnvironmentBarriers(topology, prompt) {
   const lower = String(prompt || '').toLowerCase();
-  const wantsWalls = /\bwall\b|\bwalls\b|\bbarrier\b|\bbarriers\b|\bpartition\b/.test(lower);
+  const wantsWalls = /\bwall\b|\bwalls\b|\bbarrier\b|\bbarriers\b|\bpartition wall\b|\bphysical partition\b|\bpartitions\b/.test(lower);
   const wantsDoor = /\bdoor\b|\bdoors\b|\bopening\b|\bentry\b|\bentrance\b/.test(lower);
   const wantsWindow = /\bwindow\b|\bwindows\b|\bglass partition\b|\bglass wall\b/.test(lower);
   const wantsNoise = /\bnoise\b|\binterference\b|\brf noise\b|\belectrical noise\b|\bmicrowave\b/.test(lower);

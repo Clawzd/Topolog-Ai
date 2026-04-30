@@ -525,8 +525,258 @@ export default function TopologAi() {
     setGenerateAnimKey((k) => k + 1);
   };
 
+  const omitIdentity = (value = {}) => {
+    const { id, tempId, op, fields, item, node, link, room, barrier, topology, ...rest } = value;
+    return rest;
+  };
+
+  const shiftBarrier = (barrier, dx = 0, dy = 0) => {
+    const shifted = { ...barrier };
+    if (typeof shifted.x === 'number') shifted.x += dx;
+    if (typeof shifted.y === 'number') shifted.y += dy;
+    if (typeof shifted.x1 === 'number') shifted.x1 += dx;
+    if (typeof shifted.y1 === 'number') shifted.y1 += dy;
+    if (typeof shifted.x2 === 'number') shifted.x2 += dx;
+    if (typeof shifted.y2 === 'number') shifted.y2 += dy;
+    return shifted;
+  };
+
+  const applyAiOperations = (editResult, prompt) => {
+    const operations = Array.isArray(editResult?.operations) ? editResult.operations : [];
+    if (!operations.length) {
+      showToast(editResult?.summary || 'No safe AI edit was applied');
+      return;
+    }
+
+    pushHistory();
+
+    let next = {
+      nodes: [...nodes],
+      links: [...links],
+      rooms: [...rooms],
+      vlans: [...vlans],
+      barriers: [...barriers],
+      vlanZones: [...vlanZones],
+      powerZones: [...powerZones],
+    };
+    const idMap = {};
+    const resolveId = (id) => idMap[id] || id;
+    const idsFromOperation = (operation) => {
+      const raw = operation.ids || operation.id || operation.targetId || operation.nodeId || operation.linkId || operation.roomId || operation.barrierId;
+      return Array.isArray(raw) ? raw.map(resolveId).filter(Boolean) : raw ? [resolveId(raw)] : [];
+    };
+
+    const removeNodes = (ids) => {
+      const del = new Set(ids);
+      next.nodes = next.nodes.filter((node) => !del.has(node.id));
+      next.links = next.links.filter((link) => !del.has(link.source) && !del.has(link.target));
+    };
+
+    const removeLinks = (ids) => {
+      const del = new Set(ids);
+      next.links = next.links.filter((link) => !del.has(link.id));
+    };
+
+    const removeBarriers = (ids) => {
+      const del = new Set(ids);
+      next.barriers = next.barriers.filter((barrier) => !del.has(barrier.id));
+      next.links = next.links.filter((link) => !del.has(link.busId) && !del.has(link.source) && !del.has(link.target));
+    };
+
+    for (const operation of operations) {
+      const op = operation?.op;
+      if (!op) continue;
+
+      if (op === 'replace_canvas') {
+        const replacement = adaptTopologyForCurrentMode(operation.topology || {});
+        next = {
+          nodes: replacement.nodes || [],
+          links: replacement.links || [],
+          rooms: replacement.rooms || [],
+          vlans: replacement.vlans || [],
+          barriers: replacement.barriers || [],
+          vlanZones: replacement.vlanZones || [],
+          powerZones: replacement.powerZones || [],
+        };
+        continue;
+      }
+
+      if (op === 'add_node') {
+        const input = operation.node || operation.item || omitIdentity(operation);
+        const id = generateId(input.isBusAnchor ? 'bn' : 'n');
+        if (input.tempId || input.id) idMap[input.tempId || input.id] = id;
+        next.nodes.push({
+          ...omitIdentity(input),
+          id,
+          type: input.type || 'pc',
+          label: input.label || `${input.type || 'Device'} ${next.nodes.length + 1}`,
+          x: Number.isFinite(Number(input.x)) ? Number(input.x) : 120,
+          y: Number.isFinite(Number(input.y)) ? Number(input.y) : 120,
+          ip: input.ip || '',
+          vlan: input.vlan || null,
+        });
+        continue;
+      }
+
+      if (op === 'add_link') {
+        const input = operation.link || operation.item || omitIdentity(operation);
+        const source = resolveId(input.source);
+        const target = resolveId(input.target);
+        if (!source || !target) continue;
+        next.links.push({
+          ...omitIdentity(input),
+          id: generateId('l'),
+          source,
+          target,
+          type: input.type || 'ethernet',
+          label: input.label || '',
+          ...(input.busId ? { busId: resolveId(input.busId) } : {}),
+          ...(input.sourceBusAnchorId ? { sourceBusAnchorId: resolveId(input.sourceBusAnchorId) } : {}),
+          ...(input.targetBusAnchorId ? { targetBusAnchorId: resolveId(input.targetBusAnchorId) } : {}),
+        });
+        continue;
+      }
+
+      if (op === 'add_room') {
+        const input = operation.room || operation.item || omitIdentity(operation);
+        const id = generateId('r');
+        if (input.tempId || input.id) idMap[input.tempId || input.id] = id;
+        next.rooms.push({
+          ...omitIdentity(input),
+          id,
+          label: input.label || `Room ${next.rooms.length + 1}`,
+          x: Number.isFinite(Number(input.x)) ? Number(input.x) : 80,
+          y: Number.isFinite(Number(input.y)) ? Number(input.y) : 80,
+          w: Number.isFinite(Number(input.w)) ? Number(input.w) : 260,
+          h: Number.isFinite(Number(input.h)) ? Number(input.h) : 180,
+          color: input.color || 'rgba(59,130,246,0.08)',
+        });
+        continue;
+      }
+
+      if (op === 'add_barrier') {
+        const input = operation.barrier || operation.item || omitIdentity(operation);
+        const id = generateId('b');
+        if (input.tempId || input.id) idMap[input.tempId || input.id] = id;
+        next.barriers.push({
+          ...omitIdentity(input),
+          id,
+          shape: input.shape || 'line',
+          environmentKind: input.environmentKind || 'wall',
+          label: input.label || 'Barrier',
+        });
+        continue;
+      }
+
+      if (op === 'update_node') {
+        const ids = idsFromOperation(operation);
+        const patch = omitIdentity(operation.fields || operation.node || operation.patch || {});
+        next.nodes = next.nodes.map((node) => (ids.includes(node.id) ? { ...node, ...patch } : node));
+        continue;
+      }
+
+      if (op === 'update_link') {
+        const ids = idsFromOperation(operation);
+        const patch = omitIdentity(operation.fields || operation.link || operation.patch || {});
+        next.links = next.links.map((link) => (ids.includes(link.id) ? { ...link, ...patch } : link));
+        continue;
+      }
+
+      if (op === 'update_room') {
+        const ids = idsFromOperation(operation);
+        const patch = omitIdentity(operation.fields || operation.room || operation.patch || {});
+        next.rooms = next.rooms.map((room) => (ids.includes(room.id) ? { ...room, ...patch } : room));
+        continue;
+      }
+
+      if (op === 'update_barrier') {
+        const ids = idsFromOperation(operation);
+        const patch = omitIdentity(operation.fields || operation.barrier || operation.patch || {});
+        next.barriers = next.barriers.map((barrier) => (ids.includes(barrier.id) ? { ...barrier, ...patch } : barrier));
+        continue;
+      }
+
+      if (op === 'move_node') {
+        const ids = idsFromOperation(operation);
+        next.nodes = next.nodes.map((node) => {
+          if (!ids.includes(node.id)) return node;
+          const dx = Number(operation.dx) || 0;
+          const dy = Number(operation.dy) || 0;
+          return {
+            ...node,
+            x: Number.isFinite(Number(operation.x)) ? Number(operation.x) : node.x + dx,
+            y: Number.isFinite(Number(operation.y)) ? Number(operation.y) : node.y + dy,
+          };
+        });
+        continue;
+      }
+
+      if (op === 'move_room') {
+        const ids = idsFromOperation(operation);
+        next.rooms = next.rooms.map((room) => {
+          if (!ids.includes(room.id)) return room;
+          const dx = Number(operation.dx) || 0;
+          const dy = Number(operation.dy) || 0;
+          return {
+            ...room,
+            x: Number.isFinite(Number(operation.x)) ? Number(operation.x) : room.x + dx,
+            y: Number.isFinite(Number(operation.y)) ? Number(operation.y) : room.y + dy,
+          };
+        });
+        continue;
+      }
+
+      if (op === 'move_barrier') {
+        const ids = idsFromOperation(operation);
+        next.barriers = next.barriers.map((barrier) => {
+          if (!ids.includes(barrier.id)) return barrier;
+          const dx = Number(operation.dx) || 0;
+          const dy = Number(operation.dy) || 0;
+          if (Number.isFinite(Number(operation.x)) && Number.isFinite(Number(operation.y))) {
+            return { ...barrier, x: Number(operation.x), y: Number(operation.y) };
+          }
+          return shiftBarrier(barrier, dx, dy);
+        });
+        continue;
+      }
+
+      if (op === 'delete_node') removeNodes(idsFromOperation(operation));
+      if (op === 'delete_link') removeLinks(idsFromOperation(operation));
+      if (op === 'delete_room') {
+        const del = new Set(idsFromOperation(operation));
+        next.rooms = next.rooms.filter((room) => !del.has(room.id));
+      }
+      if (op === 'delete_barrier') removeBarriers(idsFromOperation(operation));
+    }
+
+    const nodeIds = new Set(next.nodes.map((node) => node.id));
+    const barrierIds = new Set(next.barriers.map((barrier) => barrier.id));
+    next.links = next.links.filter((link) => {
+      const validSource = nodeIds.has(link.source) || barrierIds.has(link.source);
+      const validTarget = nodeIds.has(link.target) || barrierIds.has(link.target);
+      const validBus = !link.busId || barrierIds.has(link.busId);
+      return validSource && validTarget && validBus;
+    });
+    const linkedIds = new Set(next.links.flatMap((link) => [link.source, link.target, link.sourceBusAnchorId, link.targetBusAnchorId].filter(Boolean)));
+    next.nodes = next.nodes.filter((node) => !node.isBusAnchor || linkedIds.has(node.id));
+
+    setNodes(next.nodes);
+    setLinks(next.links);
+    setRooms(next.rooms);
+    setVlans(next.vlans);
+    setBarriers(next.barriers);
+    setVlanZones(next.vlanZones);
+    setPowerZones(next.powerZones);
+    if (prompt) setCurrentPrompt(prompt);
+    setSelectedId(null);
+    setSelectedIds([]);
+    setConnectingFrom(null);
+    showToast(editResult?.summary || 'AI edits applied', 'success');
+    setGenerateAnimKey((k) => k + 1);
+  };
+
   const handleTopologyGenerated = (topology, prompt) => loadTopology(topology, prompt, false);
-  const handleRefinement = (topology, prompt) => loadTopology(topology, prompt, true);
+  const handleRefinement = (editResult, prompt) => applyAiOperations(editResult, prompt);
 
   const handleTemplateSelect = (template) => {
     loadTopology(template.data, template.prompt, false);
@@ -1536,7 +1786,7 @@ export default function TopologAi() {
                 onTopologyGenerated={handleTopologyGenerated}
                 onRefinement={handleRefinement}
                 hasTopology={hasTopology}
-                getMapState={() => ({ nodes, rooms, barriers })}
+                getMapState={() => ({ nodes, links, rooms, vlans, barriers, vlanZones, powerZones })}
               />
             </>
           )}

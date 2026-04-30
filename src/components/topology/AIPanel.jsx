@@ -1,6 +1,7 @@
 ﻿import { useState, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import { Sparkles, Send, ChevronDown, ChevronUp } from 'lucide-react';
 import {
+  generateTopologyEditsFromPrompt,
   generateTopologyFromPrompt,
   getTopologyAiProviderLabel,
   getTopologyAiConnectionStatus,
@@ -126,6 +127,29 @@ function buildGenerationInsight(topology, prompt, isRefinement) {
   };
 }
 
+function buildRefinementInsight(editResult) {
+  const operations = Array.isArray(editResult?.operations) ? editResult.operations : [];
+  const actionCounts = operations.reduce((counts, operation) => {
+    const key = String(operation?.op || 'edit').replace(/_/g, ' ');
+    counts.set(key, (counts.get(key) || 0) + 1);
+    return counts;
+  }, new Map());
+  const actionText = [...actionCounts.entries()]
+    .map(([label, count]) => `${count} ${label}`)
+    .join(', ');
+
+  return {
+    topologyType: 'edit',
+    topologyLabel: 'Canvas Edit',
+    what: operations.length
+      ? `Applied ${operations.length} canvas edit${operations.length === 1 ? '' : 's'}: ${actionText}.`
+      : 'No safe canvas edit was applied.',
+    why: 'The AI used the current canvas IDs and the refinement prompt to change the existing design instead of duplicating it.',
+    rooms: [],
+    summary: editResult?.summary || 'Updated the current topology.',
+  };
+}
+
 /**
  * @typedef {object} AIPanelProps
  * @property {(topology: any, prompt: string) => void} onTopologyGenerated
@@ -163,6 +187,24 @@ const AIPanel = forwardRef(
     setError('');
     try {
       const mapState = getMapState ? getMapState() : undefined;
+      if (isRefinement) {
+        const editResult = await generateTopologyEditsFromPrompt(cleanText, mapState);
+        const insight = buildRefinementInsight(editResult);
+        const entry = {
+          id: Date.now(),
+          prompt: cleanText,
+          summary: editResult.summary,
+          topologyType: 'Edit',
+          isRefinement,
+          timestamp: new Date().toLocaleTimeString(),
+        };
+        setLatestInsight(insight);
+        setHistory(h => [entry, ...h.slice(0, 9)]);
+        onRefinement(editResult, cleanText);
+        setPrompt('');
+        return;
+      }
+
       const topology = await generateTopologyFromPrompt(cleanText, mapState);
 
       // Re-ID nodes, barriers, rooms, vlans so they don't collide with
@@ -352,32 +394,34 @@ const AIPanel = forwardRef(
       </div>
 
       {latestInsight && (
-        <div className="p-3 border-b border-border bg-muted/25">
-          <div className="rounded-xl border border-border/70 bg-card/90 p-3 shadow-sm">
+        <div className="p-2.5 border-b border-border bg-muted/25">
+          <div className="rounded-lg border border-border/70 bg-card/90 p-2.5 shadow-sm">
             <div className="flex items-start justify-between gap-3 mb-2">
               <div>
                 <p className="text-[9px] uppercase tracking-[0.22em] text-muted-foreground">Last AI Design</p>
-                <h3 className="text-sm font-semibold text-foreground mt-1">{latestInsight.topologyLabel} topology</h3>
+                <h3 className="text-sm font-semibold text-foreground mt-1">
+                  {latestInsight.topologyType === 'edit' ? latestInsight.topologyLabel : `${latestInsight.topologyLabel} topology`}
+                </h3>
               </div>
               <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary">
                 {latestInsight.topologyType}
               </span>
             </div>
 
-            <p className="text-[11px] leading-relaxed text-foreground/90">{latestInsight.what}</p>
-            <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">{latestInsight.summary}</p>
+            <p className="text-[10px] leading-relaxed text-foreground/90">{latestInsight.what}</p>
+            <p className="mt-1.5 text-[9px] leading-relaxed text-muted-foreground line-clamp-3">{latestInsight.summary}</p>
 
-            <div className="mt-3 space-y-2">
+            <div className="mt-2.5 space-y-2">
               <div>
                 <p className="text-[10px] font-medium text-foreground">Why this topology</p>
-                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">{latestInsight.why}</p>
+                <p className="mt-1 text-[9px] leading-relaxed text-muted-foreground line-clamp-2">{latestInsight.why}</p>
               </div>
               <div>
                 <p className="text-[10px] font-medium text-foreground">Rooms and zones</p>
                 {latestInsight.rooms.length > 0 ? (
-                  <div className="mt-1.5 space-y-1.5">
-                    {latestInsight.rooms.slice(0, 4).map((room) => (
-                      <div key={room.id} className="rounded-lg bg-muted/55 px-2.5 py-2">
+                  <div className="mt-1.5 max-h-28 space-y-1.5 overflow-y-auto pr-1">
+                    {latestInsight.rooms.map((room) => (
+                      <div key={room.id} className="rounded-md bg-muted/55 px-2.5 py-1.5">
                         <p className="text-[10px] font-medium text-foreground">{room.label}</p>
                         <p className="mt-0.5 text-[9px] leading-relaxed text-muted-foreground">{room.detail}</p>
                       </div>

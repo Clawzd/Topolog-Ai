@@ -7,6 +7,7 @@ const NODE_W = 90;
 const NODE_H = 56;
 const NODE_PAD = 24; // minimum gap between nodes
 const ROOM_PAD = 30; // padding inside room edges
+const ROOM_CLAIM_PAD = 8; // small tolerance for imperfect AI room coordinates
 
 /**
  * Check if two rectangles overlap (with padding).
@@ -157,9 +158,8 @@ export function applySmartLayout(topology, mapState = {}) {
 
 /**
  * Auto-size rooms so they contain all devices that belong to them.
- * Each node is assigned exclusively to the room whose original center is
- * closest, which prevents two adjacent rooms from both expanding to claim
- * the same boundary node and then overlapping.
+ * Each node is assigned exclusively to a room only when its center is inside
+ * that room's original bounds, so unrelated core gear does not get absorbed.
  * After sizing, a separation pass pushes any still-overlapping rooms apart.
  */
 function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
@@ -175,9 +175,9 @@ function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
   // Build a centre point for each room (used for proximity assignment).
   const centers = rects.map(r => ({ cx: r.x + r.w / 2, cy: r.y + r.h / 2 }));
 
-  // Exclusively assign each node to the nearest room whose original bounding
-  // box (+ ROOM_PAD tolerance) contains it.  If no room contains a node,
-  // assign to the room whose centre is closest.
+  // Exclusively assign each node to a room only when the original room bounds
+  // claim it. LLMs can emit broad or uneven rooms, so nearest-room fallback
+  // makes labels like "Student Lab" accidentally absorb unrelated core gear.
   const buckets = rects.map(() => []);
   for (const n of adjustedNodes) {
     if (n.isBusAnchor) continue; // bus anchors are invisible; don't pull rooms
@@ -186,7 +186,7 @@ function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
 
     // Rooms that actually contain the node centre
     const containing = rects
-      .map((r, i) => ({ i, inside: cx >= r.x - ROOM_PAD && cx <= r.x + r.w + ROOM_PAD && cy >= r.y - ROOM_PAD && cy <= r.y + r.h + ROOM_PAD }))
+      .map((r, i) => ({ i, inside: cx >= r.x - ROOM_CLAIM_PAD && cx <= r.x + r.w + ROOM_CLAIM_PAD && cy >= r.y - ROOM_CLAIM_PAD && cy <= r.y + r.h + ROOM_CLAIM_PAD }))
       .filter(e => e.inside);
 
     let chosen;
@@ -199,11 +199,8 @@ function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
         return d < best.d ? { i: e.i, d } : best;
       }, { i: containing[0].i, d: Infinity }).i;
     } else {
-      // Node is outside every room — assign to the nearest room centre.
-      chosen = centers.reduce((best, c, i) => {
-        const d = Math.hypot(cx - c.cx, cy - c.cy);
-        return d < best.d ? { i, d } : best;
-      }, { i: 0, d: Infinity }).i;
+      // Node is outside every room, so leave room sizing unchanged.
+      continue;
     }
     buckets[chosen].push(n);
   }
