@@ -1902,6 +1902,7 @@ export default function TopologAi() {
             powerZones={powerZones}
             smartSnapshot={smartSnapshot}
             heatmapMode={heatmapMode}
+            cornerAiShortcutHint={focusMode || !aiPanelOpen}
             showTrafficFlow={showTrafficFlow}
             showComplianceView={showComplianceView}
             showPowerView={showPowerView}
