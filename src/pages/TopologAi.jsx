@@ -1867,8 +1867,6 @@ export default function TopologAi() {
               onExport={EXPO_MODE ? handleExportJson : () => setExportModalOpen(true)}
               onSimulateUptime={EXPO_MODE ? null : handleSimulateUptime}
               onSimulateDeviceStatus={EXPO_MODE ? null : handleSimulateDeviceStatus}
-              gridSnap={gridSnap}
-              setGridSnap={setGridSnap}
               onOpenInsights={EXPO_MODE ? null : () => { setInsightsOpen(true); }}
               onCollapseSidebars={EXPO_MODE ? null : () => {
                 setFocusMode(true);

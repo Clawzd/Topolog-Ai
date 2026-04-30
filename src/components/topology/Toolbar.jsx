@@ -1,4 +1,4 @@
-﻿import {
+import {
   MousePointer2,
   Link2,
   Move,
@@ -21,7 +21,6 @@
   Volume2,
   Route,
   Clock3,
-  Magnet,
   Bell,
   Play,
   PanelRightClose,
@@ -45,7 +44,6 @@ const EXPO_MODES = [
   { id: 'connect', icon: Link2, label: 'Draw Connection', key: 'C' },
   { id: 'pan', icon: Move, label: 'Pan Canvas', key: 'H' },
   { id: 'barrier', icon: BrickWall, label: 'Draw Wall', key: 'B' },
-  { id: 'vlanzone', icon: LayoutGrid, label: 'Room overlay', key: 'Z' },
 ];
 
 function ToolBtn({ onClick, title, shortcut = '', children, active = false, danger = false, disabled = false }) {
@@ -102,8 +100,6 @@ export default function Toolbar({
   onExport,
   onSimulateUptime,
   onSimulateDeviceStatus,
-  gridSnap = false,
-  setGridSnap,
   onOpenInsights,
   onCollapseSidebars,
 }) {
@@ -141,15 +137,6 @@ export default function Toolbar({
       <ToolBtn onClick={resetView} title="Fit to View" shortcut="0">
         <Maximize2 className="w-3.5 h-3.5" />
       </ToolBtn>
-      {setGridSnap && (
-        <ToolBtn
-          onClick={() => setGridSnap(!gridSnap)}
-          title="Snap to 8px grid (v3)"
-          active={gridSnap}
-        >
-          <Magnet className="w-3.5 h-3.5" />
-        </ToolBtn>
-      )}
 
       <Divider />
 
