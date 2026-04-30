@@ -224,8 +224,6 @@ export default function TopologyCanvas({
   powerZones = [],
   smartSnapshot = null,
   heatmapMode = null,
-  /** When true, show a small shortcut hint at bottom-left of the viewport (e.g. AI panel hidden). */
-  cornerAiShortcutHint = false,
   showTrafficFlow = false,
   showComplianceView = false,
   showPowerView = false,
@@ -1996,15 +1994,6 @@ export default function TopologyCanvas({
       </svg>
 
       {/* Link hover tooltip (outside SVG, in HTML) */}
-      {cornerAiShortcutHint && heatmapMode !== 'signal' && (
-        <div className="fixed z-30 pointer-events-none bottom-14 left-4 max-w-[240px] rounded-lg border border-border/80 bg-card/90 px-2.5 py-1.5 text-[9px] text-muted-foreground shadow-md backdrop-blur-sm">
-          <span className="text-foreground/85">⌘+Enter</span>
-          {' / '}
-          <span className="text-foreground/85">Ctrl+Enter</span>
-          <span className="text-muted-foreground"> — AI generate</span>
-        </div>
-      )}
-
       {heatmapMode === 'signal' && (
         <div className="fixed z-30 pointer-events-none bottom-14 left-4 max-w-[220px] rounded-lg border border-border bg-card/92 px-2.5 py-2 text-[10px] text-muted-foreground shadow-lg backdrop-blur-md">
           <div className="font-semibold text-foreground/90 mb-1.5">Signal heatmap</div>

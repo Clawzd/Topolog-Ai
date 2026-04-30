@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Save,
   FolderOpen,
@@ -158,6 +159,13 @@ export default function TopBar({
 
       {/* Center: Actions */}
       <nav className="flex flex-shrink-0 flex-wrap items-center justify-end gap-0.5">
+        <Link
+          to="/evaluation"
+          className="mr-0.5 inline-flex rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          title="Design score and findings"
+        >
+          Evaluation
+        </Link>
         {/* File */}
         <DropdownMenu trigger={<><Save className="h-3.5 w-3.5" /><span className="hidden sm:inline">File</span></>}>
           {(close) => (
