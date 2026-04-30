@@ -477,8 +477,8 @@ const AIPanel = forwardRef(
                     )}
                   </div>
                 </div>
-                <p className="text-[10px] text-foreground line-clamp-2 mb-1">{h.prompt}</p>
-                <p className="text-[9px] text-muted-foreground line-clamp-2">{h.summary}</p>
+                <p className="text-[10px] leading-relaxed text-foreground break-words mb-1">{h.prompt}</p>
+                <p className="text-[9px] leading-relaxed text-muted-foreground break-words">{h.summary}</p>
               </div>
             ))}
           </div>
