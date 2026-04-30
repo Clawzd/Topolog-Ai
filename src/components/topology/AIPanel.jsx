@@ -408,12 +408,12 @@ const AIPanel = forwardRef(
             </div>
 
             <p className="text-[10px] leading-relaxed text-foreground/90">{latestInsight.what}</p>
-            <p className="mt-1.5 text-[9px] leading-relaxed text-muted-foreground line-clamp-3">{latestInsight.summary}</p>
+            <p className="mt-1.5 text-[9px] leading-relaxed text-muted-foreground break-words">{latestInsight.summary}</p>
 
             <div className="mt-2.5 space-y-2">
               <div>
                 <p className="text-[10px] font-medium text-foreground">Why this topology</p>
-                <p className="mt-1 text-[9px] leading-relaxed text-muted-foreground line-clamp-2">{latestInsight.why}</p>
+                <p className="mt-1 text-[9px] leading-relaxed text-muted-foreground break-words">{latestInsight.why}</p>
               </div>
               <div>
                 <p className="text-[10px] font-medium text-foreground">Rooms and zones</p>

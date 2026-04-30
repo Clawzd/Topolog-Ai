@@ -431,6 +431,24 @@ function promptExplicitlyAllowsBusInfrastructure(prompt, node) {
   return false;
 }
 
+function promptAllowsBusEndpointType(prompt, type) {
+  const text = String(prompt || '').toLowerCase();
+  const hasAnyDeviceRequest = /\b(computers?|pcs?|workstations?|desktops?|clients?|students?|staff|laptops?|printers?|servers?|file server|training server|nas|storage|backup|cameras?|phones?|voip|tablets?|iot|sensors?|smart\s?tv|display|wifi|wi-fi|wireless|access points?|aps?)\b/.test(text);
+  const asksForComputers = /\b(computers?|pcs?|workstations?|desktops?|clients?|students?|staff|laptops?|terminals?)\b/.test(text);
+
+  if (type === 'pc' || type === 'laptop') return asksForComputers || !hasAnyDeviceRequest;
+  if (type === 'server') return /\b(servers?|file server|training server|web server|app server|database|db|service host|services?)\b/.test(text);
+  if (type === 'printer') return /\b(printers?|print|printing)\b/.test(text);
+  if (type === 'camera') return /\b(cameras?|security|surveillance|cctv)\b/.test(text);
+  if (type === 'nas') return /\b(nas|storage|backup)\b/.test(text);
+  if (type === 'phone') return /\b(phones?|voip|voice)\b/.test(text);
+  if (type === 'tablet') return /\b(tablets?)\b/.test(text);
+  if (type === 'iot') return /\b(iot|sensors?|gateway)\b/.test(text);
+  if (type === 'smarttv') return /\b(smart\s?tv|tv|display|screen)\b/.test(text);
+  if (type === 'ap') return /\b(wifi|wi-fi|wireless|access points?|aps?)\b/.test(text);
+  return false;
+}
+
 function busEndpointCandidates(topology, bus) {
   const nodes = (topology.nodes || []).filter((node) => !node.isBusAnchor);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
@@ -442,13 +460,40 @@ function busEndpointCandidates(topology, bus) {
 
   const endpointTypes = new Set(['pc', 'laptop', 'printer', 'server', 'camera', 'nas', 'phone', 'tablet', 'iot', 'smarttv', 'ap']);
   const strictEndpoints = nodes.filter((node) => {
-    if (linkedIds.has(node.id) && endpointTypes.has(node.type)) return true;
+    if (linkedIds.has(node.id) && endpointTypes.has(node.type)) return promptAllowsBusEndpointType(topology._prompt, node.type);
     if (linkedIds.has(node.id) && promptExplicitlyAllowsBusInfrastructure(topology._prompt, node)) return true;
-    return !linkedIds.size && endpointTypes.has(node.type);
+    return !linkedIds.size && endpointTypes.has(node.type) && promptAllowsBusEndpointType(topology._prompt, node.type);
   });
 
   if (strictEndpoints.length >= 2) return strictEndpoints;
-  return nodes.filter((node) => linkedIds.has(node.id) || endpointTypes.has(node.type));
+  return nodes.filter((node) => {
+    if (!linkedIds.has(node.id) && !endpointTypes.has(node.type)) return false;
+    return endpointTypes.has(node.type) && promptAllowsBusEndpointType(topology._prompt, node.type);
+  });
+}
+
+function summarizeNodeTypes(nodes) {
+  const typeLabels = {
+    pc: 'workstation',
+    laptop: 'laptop',
+    printer: 'printer',
+    server: 'server',
+    camera: 'camera',
+    nas: 'NAS',
+    phone: 'phone',
+    tablet: 'tablet',
+    iot: 'IoT device',
+    smarttv: 'smart TV',
+    ap: 'access point',
+  };
+  const counts = new Map();
+  nodes.forEach((node) => {
+    const label = typeLabels[node.type] || node.type || 'device';
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+  return [...counts.entries()]
+    .map(([label, count]) => `${count} ${label}${count === 1 || label === 'NAS' ? '' : 's'}`)
+    .join(', ');
 }
 
 function normalizeStrictBusTopology(topology, prompt = '') {
@@ -553,6 +598,7 @@ function normalizeStrictBusTopology(topology, prompt = '') {
 
   return {
     ...topology,
+    summary: `Bus topology with ${normalizedNodes.length} endpoint device${normalizedNodes.length === 1 ? '' : 's'} (${summarizeNodeTypes(normalizedNodes)}) tapping directly into one shared backbone. Removed unrequested switch/router branches and extra device types from the strict bus layout.`,
     nodes: normalizedNodes,
     links: normalizedLinks,
     rooms: normalizedRooms,
