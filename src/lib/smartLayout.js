@@ -609,8 +609,243 @@ function normalizeStrictBusTopology(topology, prompt = '') {
   };
 }
 
+const MESH_CORE_TYPES = new Set(['router', 'switch', 'firewall', 'loadbalancer']);
+const ENDPOINT_TYPES = new Set(['pc', 'laptop', 'printer', 'server', 'camera', 'nas', 'phone', 'tablet', 'iot', 'smarttv', 'ap']);
+const INFRA_TYPES = new Set(['router', 'switch', 'firewall', 'loadbalancer', 'cloud']);
+
+function isMeshCoreNode(node) {
+  if (!node || !MESH_CORE_TYPES.has(node.type)) return false;
+  const label = String(node.label || '').toLowerCase();
+  // Exclude obvious access-layer switches; mesh applies to backbone cores.
+  if (/\b(access|edge access|idf|closet|wiring|patch)\b/.test(label) && node.type === 'switch') return false;
+  return true;
+}
+
+function linkPairKey(a, b) {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+function nodeCenter(node) {
+  return { x: (node.x || 0) + NODE_W / 2, y: (node.y || 0) + NODE_H / 2 };
+}
+
+function normalizeStrictMeshTopology(topology) {
+  const nodes = topology.nodes || [];
+  const links = topology.links || [];
+  const coreNodes = nodes.filter(isMeshCoreNode);
+  if (coreNodes.length < 3) return topology;
+
+  const existingPairs = new Set(
+    links
+      .filter((link) => link && link.source && link.target)
+      .map((link) => linkPairKey(link.source, link.target)),
+  );
+
+  const newLinks = [];
+  for (let i = 0; i < coreNodes.length; i += 1) {
+    for (let j = i + 1; j < coreNodes.length; j += 1) {
+      const a = coreNodes[i];
+      const b = coreNodes[j];
+      const key = linkPairKey(a.id, b.id);
+      if (existingPairs.has(key)) continue;
+      existingPairs.add(key);
+      newLinks.push({
+        id: `mesh_core_${a.id}_${b.id}`,
+        source: a.id,
+        target: b.id,
+        type: 'fiber',
+        label: 'Mesh core',
+      });
+    }
+  }
+
+  if (!newLinks.length) return topology;
+
+  const coreCount = coreNodes.length;
+  const expectedLinks = (coreCount * (coreCount - 1)) / 2;
+  return {
+    ...topology,
+    links: [...links, ...newLinks],
+    summary: `Mesh topology with ${coreCount} fully-interconnected core devices (${expectedLinks} core-to-core fiber links). Added ${newLinks.length} missing cross-link${newLinks.length === 1 ? '' : 's'} so every core node reaches every other core directly.`,
+  };
+}
+
+function normalizeStrictStarTopology(topology) {
+  const nodes = topology.nodes || [];
+  const links = topology.links || [];
+  if (nodes.length < 3) return topology;
+
+  // Hub = the router/switch with the most existing connections; tie-break by node order.
+  const degree = new Map(nodes.map((n) => [n.id, 0]));
+  for (const link of links) {
+    if (degree.has(link.source)) degree.set(link.source, degree.get(link.source) + 1);
+    if (degree.has(link.target)) degree.set(link.target, degree.get(link.target) + 1);
+  }
+  const hubCandidates = nodes.filter((n) => n.type === 'switch' || n.type === 'router');
+  if (!hubCandidates.length) return topology;
+  const hub = hubCandidates.reduce((best, n) => (
+    (degree.get(n.id) || 0) > (degree.get(best.id) || 0) ? n : best
+  ), hubCandidates[0]);
+
+  const existingPairs = new Set(
+    links.filter((l) => l && l.source && l.target).map((l) => linkPairKey(l.source, l.target)),
+  );
+
+  // Drop any link whose two endpoints are both endpoint devices (no endpoint-to-endpoint links in a star).
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const filteredLinks = links.filter((link) => {
+    const a = nodeById.get(link.source);
+    const b = nodeById.get(link.target);
+    if (!a || !b) return true;
+    const aEnd = ENDPOINT_TYPES.has(a.type);
+    const bEnd = ENDPOINT_TYPES.has(b.type);
+    return !(aEnd && bEnd);
+  });
+
+  // Ensure every non-hub, non-cloud node has a link to the hub.
+  const addedLinks = [];
+  for (const n of nodes) {
+    if (n.id === hub.id) continue;
+    if (n.type === 'cloud') continue; // cloud uplink can hop through edge router
+    const key = linkPairKey(hub.id, n.id);
+    if (existingPairs.has(key)) continue;
+    // Skip if the node already touches the hub via the filtered link set.
+    const touchesHub = filteredLinks.some((l) =>
+      (l.source === hub.id && l.target === n.id) || (l.target === hub.id && l.source === n.id),
+    );
+    if (touchesHub) continue;
+    addedLinks.push({
+      id: `star_spoke_${n.id}`,
+      source: hub.id,
+      target: n.id,
+      type: n.type === 'ap' ? 'ethernet' : (ENDPOINT_TYPES.has(n.type) ? 'ethernet' : 'fiber'),
+      label: '',
+    });
+    existingPairs.add(key);
+  }
+
+  if (filteredLinks.length === links.length && !addedLinks.length) return topology;
+
+  return {
+    ...topology,
+    links: [...filteredLinks, ...addedLinks],
+    summary: `Star topology with ${nodes.length - 1} spoke device${nodes.length === 2 ? '' : 's'} radiating from one central hub (${hub.label || hub.type}). Removed endpoint-to-endpoint links and ensured every spoke connects directly to the hub.`,
+  };
+}
+
+function normalizeStrictRingTopology(topology) {
+  const nodes = topology.nodes || [];
+  const links = topology.links || [];
+  // Ring participants are router/switch nodes; need at least 3 to form a ring.
+  const ringNodes = nodes.filter((n) => n.type === 'router' || n.type === 'switch');
+  if (ringNodes.length < 3) return topology;
+
+  // Order the ring by angle around the centroid so adjacency reflects layout.
+  const cx = ringNodes.reduce((sum, n) => sum + nodeCenter(n).x, 0) / ringNodes.length;
+  const cy = ringNodes.reduce((sum, n) => sum + nodeCenter(n).y, 0) / ringNodes.length;
+  const ordered = [...ringNodes].sort((a, b) => {
+    const ca = nodeCenter(a);
+    const cb = nodeCenter(b);
+    return Math.atan2(ca.y - cy, ca.x - cx) - Math.atan2(cb.y - cy, cb.x - cx);
+  });
+
+  const existingPairs = new Set(
+    links.filter((l) => l && l.source && l.target).map((l) => linkPairKey(l.source, l.target)),
+  );
+
+  // Build the ring adjacency set we want.
+  const desiredRingPairs = new Set();
+  for (let i = 0; i < ordered.length; i += 1) {
+    const a = ordered[i];
+    const b = ordered[(i + 1) % ordered.length];
+    desiredRingPairs.add(linkPairKey(a.id, b.id));
+  }
+
+  // Remove non-ring lateral links between ring nodes, keep ring adjacency only.
+  const ringIds = new Set(ordered.map((n) => n.id));
+  const filteredLinks = links.filter((link) => {
+    if (!ringIds.has(link.source) || !ringIds.has(link.target)) return true;
+    return desiredRingPairs.has(linkPairKey(link.source, link.target));
+  });
+
+  // Add any missing ring adjacency links to close the loop.
+  const addedLinks = [];
+  for (let i = 0; i < ordered.length; i += 1) {
+    const a = ordered[i];
+    const b = ordered[(i + 1) % ordered.length];
+    const key = linkPairKey(a.id, b.id);
+    if (existingPairs.has(key)) continue;
+    addedLinks.push({
+      id: `ring_seg_${a.id}_${b.id}`,
+      source: a.id,
+      target: b.id,
+      type: 'fiber',
+      label: 'Ring segment',
+    });
+    existingPairs.add(key);
+  }
+
+  if (filteredLinks.length === links.length && !addedLinks.length) return topology;
+
+  return {
+    ...topology,
+    links: [...filteredLinks, ...addedLinks],
+    summary: `Ring topology with ${ordered.length} nodes forming a closed loop. Added ${addedLinks.length} missing ring segment${addedLinks.length === 1 ? '' : 's'} and removed lateral chords so each ring node has exactly two ring neighbours.`,
+  };
+}
+
+function normalizeStrictTreeTopology(topology) {
+  const nodes = topology.nodes || [];
+  const links = topology.links || [];
+  if (nodes.length < 3 || !links.length) return topology;
+
+  // Layer by Y coordinate. Allowed lateral links only between two infra nodes
+  // on (roughly) the same layer (within 60px); allowed only at the second-from-top tier.
+  const sortedY = [...nodes].map((n) => nodeCenter(n).y).sort((a, b) => a - b);
+  if (!sortedY.length) return topology;
+
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const layerOf = (n) => Math.round(nodeCenter(n).y / 80); // 80px bucket = layer
+  const layerForNode = new Map(nodes.map((n) => [n.id, layerOf(n)]));
+  const layerCounts = new Map();
+  for (const layer of layerForNode.values()) {
+    layerCounts.set(layer, (layerCounts.get(layer) || 0) + 1);
+  }
+  const layersWithMultiple = new Set([...layerCounts.entries()].filter(([, c]) => c >= 2).map(([l]) => l));
+  // The "core" tier is the topmost layer that has >= 2 infra nodes (for redundant cores).
+  const coreLayer = [...layersWithMultiple].sort((a, b) => a - b).find((layer) => {
+    const layerNodes = nodes.filter((n) => layerForNode.get(n.id) === layer);
+    return layerNodes.length >= 2 && layerNodes.every((n) => INFRA_TYPES.has(n.type));
+  });
+
+  const filteredLinks = links.filter((link) => {
+    const a = nodeById.get(link.source);
+    const b = nodeById.get(link.target);
+    if (!a || !b) return true;
+    const la = layerForNode.get(a.id);
+    const lb = layerForNode.get(b.id);
+    if (la !== lb) return true; // vertical link, allowed
+    // Same-layer (lateral) link: only allow at the core layer between two infra nodes.
+    if (coreLayer != null && la === coreLayer && INFRA_TYPES.has(a.type) && INFRA_TYPES.has(b.type)) return true;
+    return false;
+  });
+
+  if (filteredLinks.length === links.length) return topology;
+  const removed = links.length - filteredLinks.length;
+  return {
+    ...topology,
+    links: filteredLinks,
+    summary: `Tree topology with strict top-down hierarchy across ${layerCounts.size} layers. Removed ${removed} lateral link${removed === 1 ? '' : 's'} that broke the tree shape (only core-tier redundancy links are kept).`,
+  };
+}
+
 export function normalizeTopologyForInferredShape(topology, topologyType, prompt = '') {
   if (topologyType === 'bus') return normalizeStrictBusTopology(topology, prompt);
+  if (topologyType === 'mesh') return normalizeStrictMeshTopology(topology);
+  if (topologyType === 'star') return normalizeStrictStarTopology(topology);
+  if (topologyType === 'ring') return normalizeStrictRingTopology(topology);
+  if (topologyType === 'tree') return normalizeStrictTreeTopology(topology);
+  // hybrid: leave AI output alone — it intentionally mixes shapes.
   return topology;
 }
 
