@@ -807,15 +807,18 @@ function normalizeStrictStarTopology(topology) {
     links.filter((l) => l && l.source && l.target).map((l) => linkPairKey(l.source, l.target)),
   );
 
-  // Drop any link whose two endpoints are both endpoint devices (no endpoint-to-endpoint links in a star).
+  // Strict star: every link must touch the hub (or be a cloud uplink). Drop
+  // endpoint-to-endpoint chains AND infra-to-infra trees that would otherwise
+  // turn the star into a multi-tier mess.
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const filteredLinks = links.filter((link) => {
     const a = nodeById.get(link.source);
     const b = nodeById.get(link.target);
     if (!a || !b) return true;
-    const aEnd = ENDPOINT_TYPES.has(a.type);
-    const bEnd = ENDPOINT_TYPES.has(b.type);
-    return !(aEnd && bEnd);
+    if (link.source === hub.id || link.target === hub.id) return true;
+    // Allow cloud <-> single edge router/firewall uplinks (the hub may sit behind them).
+    if (a.type === 'cloud' || b.type === 'cloud') return true;
+    return false; // every other link is non-star clutter
   });
 
   // Ensure every non-hub, non-cloud node has a link to the hub.
@@ -971,8 +974,11 @@ export function normalizeTopologyForInferredShape(topology, topologyType, prompt
  */
 export function recommendTopology(prompt) {
   const t = (prompt || '').toLowerCase();
-  const numbers = [...t.matchAll(/\b(\d+)\b/g)].map((match) => Number(match[1])).filter(Number.isFinite);
-  const largestCount = numbers.length ? Math.max(...numbers) : null;
+  // Only count numbers that look like device counts (e.g. "12 workstations",
+  // "30 PCs"). "3-story" or "floor 2" must NOT be treated as a device count.
+  const deviceCountMatches = [...t.matchAll(/\b(\d+)\s*(?:x\s*)?(?:devices?|endpoints?|users?|seats?|staff|employees?|workstations?|pcs?|laptops?|computers?|clients?|hosts?|nodes?|phones?|cameras?|aps?|access\s*points?|tablets?|printers?|servers?)\b/g)];
+  const deviceCounts = deviceCountMatches.map((m) => Number(m[1])).filter(Number.isFinite);
+  const largestCount = deviceCounts.length ? Math.max(...deviceCounts) : null;
 
   // High availability / active-active designs -> mesh.
   if (/\b(redundan|high.?avail|failover|ha\b|active.?active|no.?single.?point|mission.?critical|zero.?downtime|always.?on|dual.?core)/i.test(t)) {
@@ -989,23 +995,32 @@ export function recommendTopology(prompt) {
     return { topology: 'bus', reason: 'Devices arranged along a line, bench row, corridor, or shared medium fit a bus backbone.' };
   }
 
-  // Small/local networks -> star.
-  if (/\b(small|simple|home|soho|basic|minimal|single.?room|front desk|tiny|clinic room|coffee shop|single office|one office|one room|reception)/i.test(t) || (largestCount != null && largestCount <= 12)) {
-    return { topology: 'star', reason: 'Small single-area networks are best represented by endpoints around one central switch or router.' };
+  // Multi-floor / multi-story buildings -> tree (must beat the small-network and
+  // hybrid checks so "3-story building" is NOT classified as star).
+  if (/\b(multi.?floor|multi.?story|multistory|multistorey|multi.?storey|\d+.?stor(?:ey|y|ies)|two.?stor|three.?stor|four.?stor|five.?stor|several.?floors?|multiple.?floors?|building.?core|distribution.?closet|floor.?switches|between.?floors?|stairwell|riser|idf.?per.?floor)/i.test(t)) {
+    return { topology: 'tree', reason: 'Multi-floor buildings need a per-floor distribution hierarchy with a shared core, which is a tree.' };
+  }
+
+  // Data center / structured multi-tier scenarios -> tree.
+  if (/\b(data.?cent|spine.?leaf|rack|server.?farm|colo|enterprise.?core|three.?tier)/i.test(t)) {
+    return { topology: 'tree', reason: 'Data centers and structured tiered networks benefit from a core/distribution/access hierarchy.' };
   }
 
   // Mixed departments/buildings/security zones -> hybrid.
-  if (/\b(campus|multi.?build|enterprise|large|complex|mixed|department|departments|student|faculty|admin|warehouse|iot|guest|security|operations|multiple zones|separate zones|network segments|segmented)/i.test(t)) {
+  if (/\b(campus|multi.?build|enterprise|complex|mixed|departments?|student|faculty|admin|warehouse|iot|guest|operations|multiple zones|separate zones|network segments|segmented)/i.test(t)) {
     return { topology: 'hybrid', reason: 'Multiple zones, departments, or mixed wired/wireless/security needs fit a hybrid design.' };
   }
 
-  // Data center / structured multi-tier buildings -> tree.
-  if (/\b(data.?cent|spine.?leaf|rack|server.?farm|colo|multi.?floor|multi.?story|3.?story|three.?story|building core|distribution closet|floor switches)/i.test(t)) {
-    return { topology: 'tree', reason: 'Data centers and multi-floor buildings benefit from a structured core/distribution/access hierarchy.' };
+  // Small/local networks -> star (strict — only obvious "small site" wording).
+  if (/\b(small|simple|home|soho|basic|minimal|single.?room|front desk|tiny|clinic room|coffee shop|single office|one office|one room|reception)/i.test(t)) {
+    return { topology: 'star', reason: 'Small single-area networks are best represented by endpoints around one central switch or router.' };
   }
 
   if (largestCount != null && largestCount >= 24) {
     return { topology: 'tree', reason: 'Larger endpoint counts need a scalable hierarchy unless another scenario strongly implies a different topology.' };
+  }
+  if (largestCount != null && largestCount <= 12) {
+    return { topology: 'star', reason: 'Small endpoint counts default to a central hub-and-spoke star.' };
   }
 
   return { topology: 'star', reason: 'A general small-to-medium network defaults to a central hub-and-spoke design unless the prompt implies a larger structure.' };
