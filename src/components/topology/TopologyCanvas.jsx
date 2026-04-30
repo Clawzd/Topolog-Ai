@@ -242,6 +242,7 @@ export default function TopologyCanvas({
   placementPattern = null,
   onPatternAdd,
   onNodeMove, onNodeAdd, onLinkAdd, onConnectNodeToBus, onLinkUpdate, onLinkDelete, onRoomAdd, onRoomResize, onRoomMove,
+  onBarrierMove,
   onBeforeChange,
   zoom, pan, setZoom, setPan,
   connectingFrom, setConnectingFrom,
@@ -251,6 +252,7 @@ export default function TopologyCanvas({
 }) {
   const svgRef = useRef(null);
   const roomMoveHistoryPushedRef = useRef(false);
+  const barrierMoveHistoryPushedRef = useRef(false);
   const touchRef = useRef({ lastDist: null, lastMid: null });
   const touchHandlersRef = useRef({});
   // Refs for touch drag/pan — written synchronously in touchStart so touchMove
@@ -260,6 +262,7 @@ export default function TopologyCanvas({
   const [dragging, setDragging] = useState(null);
   const [resizingRoom, setResizingRoom] = useState(null); // {id, handle, origRoom, startX, startY}
   const [draggingRoom, setDraggingRoom] = useState(null); // {id, origX, origY, startClientX, startClientY, nodeIds, nodeOrigins}
+  const [draggingBarrier, setDraggingBarrier] = useState(null); // { id, startClientX, startClientY, x1, y1, x2, y2, anchorOrigins }
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [hoverNode, setHoverNode] = useState(null);
@@ -500,8 +503,29 @@ export default function TopologyCanvas({
           return pointToSegmentDist(x, y, lx1, ly1, lx2, ly2) < 14;
         });
         if (hitBarrier && mode === 'select') {
+          const bx = hitBarrier;
+          const bx1 = bx.x1 ?? bx.x;
+          const by1 = bx.y1 ?? bx.y;
+          const bx2 = bx.x2 ?? bx.x + (bx.dx || 0);
+          const by2 = bx.y2 ?? bx.y + (bx.dy || 0);
+          const anchorOrigins = Object.fromEntries(
+            nodes
+              .filter((n) => n.isBusAnchor && n.busId === hitBarrier.id)
+              .map((n) => [n.id, { x: n.x, y: n.y }]),
+          );
           setSelectedId(hitBarrier.id);
           onMultiSelect && onMultiSelect([]);
+          barrierMoveHistoryPushedRef.current = false;
+          setDraggingBarrier({
+            id: hitBarrier.id,
+            startClientX: e.clientX,
+            startClientY: e.clientY,
+            x1: bx1,
+            y1: by1,
+            x2: bx2,
+            y2: by2,
+            anchorOrigins,
+          });
           return;
         }
         const hitVz = (vlanZones || []).find((z) => x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h);
@@ -571,6 +595,23 @@ export default function TopologyCanvas({
         const origin = draggingRoom.nodeOrigins?.[id];
         if (origin) onNodeMove && onNodeMove(id, origin.x + dx, origin.y + dy);
       });
+      return;
+    }
+    if (draggingBarrier) {
+      const dx = (e.clientX - draggingBarrier.startClientX) / zoom;
+      const dy = (e.clientY - draggingBarrier.startClientY) / zoom;
+      if (!barrierMoveHistoryPushedRef.current && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
+        barrierMoveHistoryPushedRef.current = true;
+        onBeforeChange && onBeforeChange();
+      }
+      onBarrierMove &&
+        onBarrierMove(draggingBarrier.id, dx, dy, {
+          x1: draggingBarrier.x1,
+          y1: draggingBarrier.y1,
+          x2: draggingBarrier.x2,
+          y2: draggingBarrier.y2,
+          anchorOrigins: draggingBarrier.anchorOrigins || {},
+        });
       return;
     }
     if (dragging) {
@@ -650,6 +691,11 @@ export default function TopologyCanvas({
     if (draggingRoom) {
       roomMoveHistoryPushedRef.current = false;
       setDraggingRoom(null);
+      return;
+    }
+    if (draggingBarrier) {
+      barrierMoveHistoryPushedRef.current = false;
+      setDraggingBarrier(null);
       return;
     }
     if (dragging) {
@@ -1114,13 +1160,7 @@ export default function TopologyCanvas({
             stroke="rgba(226,232,240,0.96)"
             strokeWidth={isSel ? 14 : 12}
             strokeLinecap="round"
-            style={{ cursor: mode === 'select' ? 'pointer' : undefined }}
-            onMouseDown={(e) => {
-              if (mode !== 'select') return;
-              e.stopPropagation();
-              setSelectedId(b.id);
-              onMultiSelect && onMultiSelect([]);
-            }}
+            style={{ cursor: mode === 'select' ? 'move' : undefined }}
           />
           <line
             x1={lx1}
@@ -1215,13 +1255,7 @@ export default function TopologyCanvas({
           strokeLinecap="round"
           strokeDasharray={dash}
           opacity={env === 'bus' ? 0.95 : 0.9}
-          style={{ cursor: mode === 'select' ? 'pointer' : undefined }}
-          onMouseDown={(e) => {
-            if (mode !== 'select') return;
-            e.stopPropagation();
-            setSelectedId(b.id);
-            onMultiSelect && onMultiSelect([]);
-          }}
+          style={{ cursor: mode === 'select' ? 'move' : undefined }}
         />
         {b.barrierType === 'concrete' && (
           <line x1={lx1} y1={ly1} x2={lx2} y2={ly2} stroke={TC.border} strokeWidth={1} strokeDasharray="4 3" opacity={0.55} pointerEvents="none" />

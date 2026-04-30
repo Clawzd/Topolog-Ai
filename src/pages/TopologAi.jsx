@@ -13,7 +13,6 @@ import EmptyState from '../components/topology/EmptyState';
 import NetworkInsightsPanel from '../components/topology/NetworkInsightsPanel';
 import { DEVICE_TYPES, generateId, normalizeTopologyForExpo, TEMPLATES } from '../lib/topologyData';
 import { instantiateTopologyPattern, TOPOLOGY_PATTERNS } from '../lib/topologyPatterns';
-import { generatePromptTopology } from '../lib/promptTopologyGenerator';
 import { expandBusLinksForCanvas } from '../lib/busExpansion';
 import { ChevronLeft, ChevronRight, Box, Home, LayoutTemplate } from 'lucide-react';
 import ConnectionTypePopup from '../components/topology/ConnectionTypePopup';
@@ -822,14 +821,6 @@ export default function TopologAi() {
     [nodes, rooms]
   );
 
-  const handleQuickStart = () => {
-    const prompt = EXPO_MODE
-      ? 'small office with internet, firewall, router, switch, one access point, one server, and a few workstations'
-      : 'zero trust branch with SD-WAN edge, corporate WiFi, guest WiFi, and identity proxy';
-    loadTopology(generatePromptTopology(prompt), prompt, false);
-    setInsightsOpen(true);
-  };
-
   // Node operations (v3 §678 grid snap)
   const handleNodeMove = (id, x, y) => {
     const SNAP = 8;
@@ -1149,6 +1140,37 @@ export default function TopologAi() {
   const handleRoomMove = (id, x, y) => {
     setRooms(r => r.map(room => room.id === id ? { ...room, x, y } : room));
   };
+
+  const handleBarrierMove = useCallback(
+    (barrierId, dx, dy, orig) => {
+      const { x1, y1, x2, y2, anchorOrigins = {} } = orig;
+      setBarriers((bs) =>
+        bs.map((b) => {
+          if (b.id !== barrierId) return b;
+          return {
+            ...b,
+            shape: b.shape ?? 'line',
+            x1: x1 + dx,
+            y1: y1 + dy,
+            x2: x2 + dx,
+            y2: y2 + dy,
+            x: undefined,
+            y: undefined,
+            dx: undefined,
+            dy: undefined,
+          };
+        }),
+      );
+      setNodes((ns) =>
+        ns.map((n) => {
+          const o = anchorOrigins[n.id];
+          if (!o) return n;
+          return { ...n, x: o.x + dx, y: o.y + dy };
+        }),
+      );
+    },
+    [setBarriers, setNodes],
+  );
 
   const handleRoomAdd = ({ x, y, w, h }) => {
     pushHistory();
@@ -1741,8 +1763,6 @@ export default function TopologAi() {
         onReset={() => {
           if (window.confirm('Clear the entire canvas? This cannot be undone.')) handleReset();
         }}
-        onTemplates={() => setShowTemplates(true)}
-        onVlanManager={() => setShowVlanManager(true)}
         onImportJson={() => importInputRef.current?.click()}
         onExportJson={handleExportJson}
         onExportSvg={handleExportSvg}
@@ -1750,8 +1770,6 @@ export default function TopologAi() {
         onExportConfig={handleExportConfig}
         onOpenExportHub={EXPO_MODE ? null : () => setExportModalOpen(true)}
         onShare={handleShareLink}
-        onValidate={handleValidate}
-        onAutoLayout={handleAutoLayout}
         insightsOpen={insightsOpen}
         onToggleInsights={() => setInsightsOpen(open => !open)}
         focusMode={focusMode}
@@ -1910,6 +1928,7 @@ export default function TopologAi() {
             onRoomAdd={handleRoomAdd}
             onRoomResize={handleRoomResize}
             onRoomMove={handleRoomMove}
+            onBarrierMove={handleBarrierMove}
             onBeforeChange={pushHistory}
             zoom={zoom} pan={pan}
             setZoom={setZoom} setPan={setPan}
@@ -1930,7 +1949,6 @@ export default function TopologAi() {
           {!hasTopology && (
             <EmptyState
               onTemplates={EXPO_MODE ? null : () => setShowTemplates(true)}
-              onQuickStart={handleQuickStart}
               onDescribe={() => aiSubmitRef.current?.focusPrompt?.()}
             />
           )}

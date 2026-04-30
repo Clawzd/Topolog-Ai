@@ -3,20 +3,16 @@ import {
   Save,
   FolderOpen,
   Eraser,
-  LayoutTemplate,
   FileJson,
   FileImage,
-  Wand2,
   BrainCircuit,
   Focus,
   Upload,
   Share2,
   FileText,
   TerminalSquare,
-  ShieldCheck,
   ChevronDown,
   Download,
-  Settings2,
   Sun,
   Moon,
 } from 'lucide-react';
@@ -110,8 +106,6 @@ export default function TopBar({
   onSave,
   onLoad,
   onReset,
-  onTemplates,
-  onVlanManager,
   onImportJson,
   onExportJson,
   onExportSvg,
@@ -119,8 +113,6 @@ export default function TopBar({
   onExportConfig,
   onOpenExportHub,
   onShare,
-  onValidate,
-  onAutoLayout,
   insightsOpen,
   onToggleInsights,
   focusMode,
@@ -195,24 +187,6 @@ export default function TopBar({
                   <Divider />
                   <DropdownItem onClick={onShare} icon={Share2} close={close}>Copy Share Link</DropdownItem>
                 </>
-              )}
-            </>
-          )}
-        </DropdownMenu>
-
-        {/* Tools */}
-        <DropdownMenu trigger={<><Settings2 className="h-3.5 w-3.5" /><span className="hidden sm:inline">Tools</span></>}>
-          {(close) => (
-            <>
-              {!expoMode && (
-          <DropdownItem onClick={onTemplates} icon={LayoutTemplate} close={close}>Example Gallery</DropdownItem>
-              )}
-              {!expoMode && (
-                <DropdownItem onClick={onVlanManager} icon={Settings2} close={close}>VLAN Manager</DropdownItem>
-              )}
-              <DropdownItem onClick={onAutoLayout} icon={Wand2} close={close}>Auto Layout</DropdownItem>
-              {!expoMode && (
-                <DropdownItem onClick={onValidate} icon={ShieldCheck} close={close}>Validate Network</DropdownItem>
               )}
             </>
           )}

@@ -1,9 +1,8 @@
-﻿import { useState, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
+import { useState, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import { Sparkles, Send, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   generateTopologyEditsFromPrompt,
   generateTopologyFromPrompt,
-  getTopologyAiProviderLabel,
   getTopologyAiConnectionStatus,
 } from '@/lib/topologyAiProvider';
 import { DEVICE_TYPES, generateId } from '../../lib/topologyData';
@@ -170,7 +169,6 @@ const AIPanel = forwardRef(
   const [latestInsight, setLatestInsight] = useState(null);
   const [showExamples, setShowExamples] = useState(false);
   const [error, setError] = useState('');
-  const providerLabel = getTopologyAiProviderLabel();
   const aiStatus = getTopologyAiConnectionStatus();
   const generateRef = useRef(null);
   const promptRef = useRef(null);
@@ -303,9 +301,6 @@ const AIPanel = forwardRef(
           <Sparkles className="w-4 h-4 text-primary" />
           <h2 className="text-sm font-semibold text-foreground">AI Topology Designer</h2>
         </div>
-        <p className="text-[10px] text-muted-foreground leading-relaxed">
-          {providerLabel} turns a site brief into an editable topology.
-        </p>
         {!aiStatus.enabled && (
           <div className="text-[9px] mt-1.5 space-y-1 leading-snug">
             <p className="text-muted-foreground/80">

@@ -1,6 +1,6 @@
 import { LayoutGrid, Sparkles, Wand2, ArrowDown } from 'lucide-react';
 
-export default function EmptyState({ onTemplates, onQuickStart, onDescribe }) {
+export default function EmptyState({ onTemplates, onDescribe }) {
   const hasExamples = typeof onTemplates === 'function';
 
   return (
@@ -42,12 +42,6 @@ export default function EmptyState({ onTemplates, onQuickStart, onDescribe }) {
               Browse Examples
             </button>
           )}
-          <button
-            onClick={onQuickStart}
-            className="flex items-center gap-2.5 bg-muted/40 hover:bg-muted border border-border/60 text-foreground text-sm font-medium px-6 py-2.5 rounded-xl transition-all hover:border-primary/30 active:scale-[0.98]"
-          >
-            Smart Blueprint
-          </button>
         </div>
 
         <div className="mt-8 flex items-center justify-center gap-2 text-[11px] text-muted-foreground/60">
