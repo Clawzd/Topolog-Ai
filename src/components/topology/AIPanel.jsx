@@ -1,5 +1,5 @@
 import { useState, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
-import { Sparkles, Send, ChevronDown, ChevronUp } from 'lucide-react';
+import { Sparkles, Send, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import {
   generateTopologyEditsFromPrompt,
   generateTopologyFromPrompt,
@@ -299,7 +299,23 @@ const AIPanel = forwardRef(
       <div className="px-4 py-3 border-b border-border">
         <div className="flex items-center gap-2 mb-1">
           <Sparkles className="w-4 h-4 text-primary" />
-          <h2 className="text-sm font-semibold text-foreground">AI Topology Designer</h2>
+          <h2 className="text-sm font-semibold text-foreground flex-1">AI Topology Designer</h2>
+          <button
+            type="button"
+            onClick={() => {
+              setPrompt('');
+              setLatestInsight(null);
+              setHistory([]);
+              setError('');
+              setShowExamples(false);
+              setExampleRotate(0);
+            }}
+            disabled={loading}
+            title="Reset AI panel (clears prompt, last design, and history)"
+            className="flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
         </div>
         {!aiStatus.enabled && (
           <div className="text-[9px] mt-1.5 space-y-1 leading-snug">

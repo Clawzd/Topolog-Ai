@@ -1,6 +1,11 @@
 import { generatePromptTopology } from './promptTopologyGenerator';
-import { applySmartLayout, normalizeTopologyForInferredShape, recommendTopology } from './smartLayout';
+import { applySmartLayout, compactAndRecenterLayout, normalizeTopologyForInferredShape, recommendTopology } from './smartLayout';
 import { expandBusLinksForCanvas } from './busExpansion';
+import {
+  enforceEditAddOperationsCount,
+  enforceRequestedCounts,
+  parseRequestedCountSpec,
+} from './requestedCounts';
 
 const TOPOLOGY_SCHEMA = {
   nodes: [
@@ -168,7 +173,12 @@ function finalizeGeneratedTopology(topology, prompt, mapState) {
   const recommendation = recommendTopology(prompt);
   const laidOut = applySmartLayout(topology, mapState);
   const normalized = normalizeTopologyForInferredShape(laidOut, recommendation.topology, prompt);
-  return expandBusLinksForCanvas(normalized);
+  const expanded = expandBusLinksForCanvas(normalized);
+  const countSpec = parseRequestedCountSpec(prompt);
+  const countAdjusted = enforceRequestedCounts(expanded, countSpec, prompt);
+  return compactAndRecenterLayout(countAdjusted, {
+    hasExistingCanvas: hasCanvasContent(mapState),
+  });
 }
 
 function sanitizeEditResponse(edit, prompt) {
@@ -278,20 +288,26 @@ function buildSystemPrompt(mapState) {
     'Return ONLY valid JSON (no markdown, no explanation). Schema:',
     JSON.stringify(TOPOLOGY_SCHEMA),
     '',
-    '## DEVICE TYPES (use ALL that are relevant):',
+    '## DEVICE TYPES (available palette):',
     'router, switch, ap, server, firewall, cloud, pc, laptop, printer, camera, nas, phone, loadbalancer, tablet, iot, pdu, patchpanel, smarttv',
     '',
-    '## WORKSTATION / ENDPOINT VARIETY — pick the right type per device, do not default to `pc`',
-    'When the user asks for "workstations", "endpoints", "users", "staff", "clients", "computers", or generic seats, MIX the device types to reflect the scenario instead of emitting only `pc`. Use this guide:',
+    '## SCOPE — build only what the prompt asks for (CRITICAL)',
+    'Default to the SMALLEST design that satisfies the prompt. Do not invent device categories the user did not mention.',
+    '- Only emit a device type if the prompt mentions it, OR the chosen topology shape strictly requires it (a STAR needs one central switch/router; BUS needs the backbone; TREE needs a root switch).',
+    '- Do NOT add a `firewall`, `cloud`/ISP node, edge `router`, core/distribution `switch` tier, `nas`, `loadbalancer`, `pdu`, or `patchpanel` unless the prompt explicitly mentions them or names a scenario that obviously requires them (data center, DMZ, public internet, multi-floor, redundancy).',
+    '- Do NOT add `printer`, `camera`, `tablet`, `smarttv`, or `iot` unless the prompt mentions them. "WiFi", "employees", "departments", "rooms", or "VLANs" do NOT imply any of these.',
+    '- "Server closet" / "server room" implies one `server`. It does NOT imply NAS, NVR, IP cameras, racks of switches, or PDUs.',
+    '- "WiFi coverage" implies one or two `ap` nodes, not a full wireless controller stack.',
+    '- "Employees", "users", "staff", or "seats" implies endpoint workstations only — do NOT pair them with phones, printers, or TVs unless the prompt says "VoIP", "phones", "printer", "TV", "display", etc.',
+    '- If the prompt gives an explicit total device count, that count is a HARD CAP across all categories combined.',
+    '',
+    '## WORKSTATION / ENDPOINT TYPE — pick the right type per device, do not default to `pc`',
+    'For workstation-style endpoints, pick a single type that matches the scenario, or mix types only if the prompt itself calls for variety. Use this guide:',
     '- `pc` — fixed desktops, lab benches, classroom desks, kiosks, reception desks, call-center seats.',
     '- `laptop` — modern offices, hot-desks, hybrid workers, sales/marketing teams, executives, students with mobile devices.',
-    '- `tablet` — retail floor staff, nurses on rounds, warehouse pickers, point-of-sale, kids/iPad classrooms.',
-    '- `phone` — every desk in a corporate or call-center scenario should pair a workstation with a VoIP phone.',
-    '- `smarttv` / display — conference rooms, lobbies, digital signage, classrooms with smartboards.',
-    '- `printer` — at least one shared printer per office/floor when staff are present.',
-    '- `iot` / `camera` — security, access control, environmental sensors, smart-building scenarios.',
-    'If the prompt explicitly names a specific subtype (e.g., "10 laptops", "tablets only", "all desktops"), respect it exactly. If it just says "workstations" or "computers" without qualifiers, vary the mix realistically (e.g., a 12-person modern office might have 6 laptops, 4 desktops, 2 tablets, 8 VoIP phones, 1 printer, 1 conference TV).',
-    'Use distinct labels per device when types repeat (e.g., "Workstation - Reception", "Laptop - Sales Lead", "Tablet - Floor Manager") instead of "PC 1, PC 2, PC 3".',
+    '- `tablet` — only when the prompt names tablets, iPads, retail floor staff with handhelds, nurses on rounds, warehouse pickers, or point-of-sale.',
+    'If the prompt names a specific subtype (e.g., "10 laptops", "tablets only", "all desktops"), respect it exactly. For generic "workstations" or "computers" without qualifiers, pick ONE type that fits the scenario (e.g., a small modern office = laptops; a classroom = pcs). Do NOT mix in phones, printers, TVs, cameras, or tablets just because the office has employees.',
+    'Use distinct labels per device when types repeat (e.g., "Workstation - Reception", "Laptop - Sales Lead") instead of "PC 1, PC 2, PC 3".',
     '',
     '## LINK TYPES: ethernet, fiber, wifi, wan, vpn',
     '',
@@ -352,18 +368,17 @@ function buildSystemPrompt(mapState) {
     '  - Mesh means core-to-core redundancy, not a tree with backup links.',
     '',
     'TREE:',
-    '  - Layer 1 (y=50): cloud/internet. Layer 2 (y=160): firewall/edge router.',
-    '  - Layer 3 (y=290): core/distribution switches. Layer 4 (y=430): access switches/APs.',
-    '  - Layer 5 (y=570): endpoints (PCs, phones, cameras, etc.).',
-    '  - Links go strictly downward; lateral links allowed only at layer 3 (redundancy).',
+    '  - Root switch/router at top (y≈80). Below it: access switches if needed (y≈220). Endpoints at the bottom (y≈360+).',
+    '  - Include `cloud`/internet, `firewall`, or an explicit edge router ONLY if the prompt mentions internet, WAN, ISP, public, DMZ, or external connectivity. Otherwise skip those layers entirely.',
+    '  - Include a separate distribution/access switch tier ONLY if the prompt mentions multiple floors, IDFs, closets, or 25+ endpoints. A small office uses a single root switch with endpoints below.',
+    '  - Links go strictly downward; lateral links allowed only between core/distribution peers (redundancy).',
     '',
     'HYBRID:',
     '  - One horizontal Bus Backbone barrier (same rules as BUS above).',
-    '  - 3 core switches tap the bus (ports 1, 3, 5).',
-    '  - Each core switch is the hub of a star cluster below it (office / server / wireless).',
-    '  - Edge: cloud → router + firewall (above bus), both connecting to the center core.',
-    '  - Add ONE cross-link between the left and right core switches (mesh redundancy).',
-    '  - Hybrid must visibly include at least two topology ideas, usually bus backbone + star clusters + one redundant cross-link.',
+    '  - 2–3 core switches tap the bus and each is the hub of a star cluster below it (one cluster per zone the user named).',
+    '  - Add `cloud`/ISP, edge `router`, or `firewall` ONLY if the prompt mentions internet, WAN, perimeter, or security. A purely internal hybrid network skips them.',
+    '  - Add ONE cross-link between two core switches only if the prompt mentions redundancy or HA.',
+    '  - Hybrid must visibly include at least two topology ideas (e.g. bus backbone + star clusters), but every infrastructure node beyond that must be justified by the prompt.',
     '',
     '## LAYOUT RULES (apply to every shape)',
     '- Canvas uses pixel coordinates. Each device node is 90px wide, 56px tall.',
@@ -414,8 +429,9 @@ function buildSystemPrompt(mapState) {
     '- Use appropriate link types: fiber for backbone/uplinks, ethernet for access, wifi for wireless clients, wan for internet, vpn for tunnels.',
     '- Include link labels for speeds (10Gbps, 1Gbps) on backbone links.',
     '- Add PoE labels where applicable (APs, cameras, phones).',
-    '- Generate 10-30 devices for typical scenarios. More for complex environments.',
-    '- Every requested device category must be represented.',
+    '- If the user gives an explicit count (for total devices or per-type devices), match that count exactly.',
+    '- Only use flexible counts when the user says words like "at least", "around", "approximately", or "up to".',
+    '- Every requested device category must be represented. Categories the user did NOT request must NOT appear (see SCOPE rule above).',
     mapContext,
   ].filter(Boolean).join('\n');
 }
@@ -572,10 +588,11 @@ function requestedDeviceType(text) {
 }
 
 function requestedCount(text) {
-  const numeric = text.match(/\b(\d+)\b/);
-  if (numeric) return Math.min(12, Math.max(1, Number(numeric[1])));
-  const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
-  return Object.entries(words).find(([word]) => new RegExp(`\\b${word}\\b`).test(text))?.[1] || 1;
+  const spec = parseRequestedCountSpec(text);
+  if (Number.isFinite(spec.totalCount)) return Math.min(24, Math.max(1, Number(spec.totalCount)));
+  const perTypeCount = Object.values(spec.perType || {}).find((n) => Number.isFinite(n) && n > 0);
+  if (Number.isFinite(perTypeCount)) return Math.min(24, Math.max(1, Number(perTypeCount)));
+  return 1;
 }
 
 function scoreLabelMatch(item, text) {
@@ -752,14 +769,17 @@ export async function generateTopologyEditsFromPrompt(prompt, mapState) {
   }
 
   if (!config.enabled) {
-    return sanitizeEditResponse(await generateLocalEditOperations(prompt, mapState), prompt);
+    const localEdits = sanitizeEditResponse(await generateLocalEditOperations(prompt, mapState), prompt);
+    return enforceEditAddOperationsCount(localEdits, prompt, mapState);
   }
 
   try {
-    return sanitizeEditResponse(await generateEditsWithDeepSeek(prompt, mapState), prompt);
+    const aiEdits = sanitizeEditResponse(await generateEditsWithDeepSeek(prompt, mapState), prompt);
+    return enforceEditAddOperationsCount(aiEdits, prompt, mapState);
   } catch (error) {
     console.warn(error);
-    return sanitizeEditResponse(await generateLocalEditOperations(prompt, mapState), prompt);
+    const fallbackEdits = sanitizeEditResponse(await generateLocalEditOperations(prompt, mapState), prompt);
+    return enforceEditAddOperationsCount(fallbackEdits, prompt, mapState);
   }
 }
 

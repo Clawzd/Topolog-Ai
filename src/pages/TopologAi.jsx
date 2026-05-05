@@ -98,6 +98,7 @@ export default function TopologAi() {
   const [connectingFrom, setConnectingFrom] = useState(null);
   const [highlightVlan, setHighlightVlan] = useState(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(true);
+  const [componentsPanelOpen, setComponentsPanelOpen] = useState(true);
   const [propsPanelOpen, setPropsPanelOpen] = useState(true);
   const [insightsOpen, setInsightsOpen] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
@@ -1784,54 +1785,13 @@ export default function TopologAi() {
 
       {/* Main area */}
       <div className="flex flex-1 min-h-0">
-        {/* AI Panel */}
-        {!focusMode && (
-        <div className={`flex-shrink-0 border-r border-border bg-card transition-all duration-200 overflow-hidden flex flex-col ${aiPanelOpen ? 'w-64' : 'w-0'}`}>
-          {aiPanelOpen && (
-            <>
-              {!EXPO_MODE && (
-                <WorkflowProgress
-                  hasTopology={hasTopology}
-                  nodeCount={nodes.length}
-                  hasRooms={rooms.length > 0}
-                  hasClassicBarriers={hasClassicBarriers}
-                  hasVlanZonesOrVlans={vlanZones.length > 0 || vlans.length > 0}
-                  hasLinks={links.length > 0}
-                  insightsOpen={insightsOpen}
-                  pathTraceActive={pathTraceActive}
-                  failureActive={!!failureTarget}
-                  exportReady={exportReadyHeuristic}
-                />
-              )}
-              <AIPanel
-                ref={aiSubmitRef}
-                onTopologyGenerated={handleTopologyGenerated}
-                onRefinement={handleRefinement}
-                hasTopology={hasTopology}
-                getMapState={() => ({ nodes, links, rooms, vlans, barriers, vlanZones, powerZones })}
-              />
-            </>
-          )}
-        </div>
-        )}
-
-        {/* Toggle AI panel */}
-        {!focusMode && (
-        <button
-          onClick={() => setAiPanelOpen(o => !o)}
-          className="flex-shrink-0 w-4 bg-card border-r border-border hover:bg-secondary transition-colors flex items-center justify-center group"
-          title={aiPanelOpen ? 'Hide AI Panel' : 'Show AI Panel'}
-        >
-          {aiPanelOpen
-            ? <ChevronLeft className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
-            : <ChevronRight className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
-          }
-        </button>
-        )}
-
         {/* Left: device palette (majority of height) + environment toolbox (capped) */}
         {!focusMode && (
-          <div className="flex h-full min-h-0 w-[18rem] shrink-0 flex-col border-r border-border bg-card/80 sm:w-80">
+          <div
+            className={`flex h-full min-h-0 shrink-0 flex-col border-r border-border bg-card/80 overflow-hidden transition-[width] duration-200 ${
+              componentsPanelOpen ? 'w-[18rem] sm:w-80' : 'w-0'
+            }`}
+          >
             <div className="flex min-h-0 flex-[3] flex-col overflow-hidden basis-0">
               <LeftPanel
                 expoMode={EXPO_MODE}
@@ -1850,6 +1810,20 @@ export default function TopologAi() {
               <EnvironmentToolbox mode={mode} setMode={setMode} />
             </div>
           </div>
+        )}
+
+        {/* Toggle Components panel */}
+        {!focusMode && (
+          <button
+            onClick={() => setComponentsPanelOpen(o => !o)}
+            className="flex-shrink-0 w-4 bg-card border-r border-border hover:bg-secondary transition-colors flex items-center justify-center group"
+            title={componentsPanelOpen ? 'Hide components panel' : 'Show components panel'}
+          >
+            {componentsPanelOpen
+              ? <ChevronLeft className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
+              : <ChevronRight className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
+            }
+          </button>
         )}
 
         {/* Canvas */}
@@ -2059,6 +2033,53 @@ export default function TopologAi() {
             onDelete={handleDelete}
             onSelectNode={(id) => { setSelectedId(id); setSelectedIds([]); }}
           />
+        )}
+
+        {/* Toggle AI panel (right edge) */}
+        {!focusMode && (
+          <button
+            onClick={() => setAiPanelOpen(o => !o)}
+            className="flex-shrink-0 w-4 bg-card border-l border-border hover:bg-secondary transition-colors flex items-center justify-center group"
+            title={aiPanelOpen ? 'Hide AI panel' : 'Show AI panel'}
+          >
+            {aiPanelOpen
+              ? <ChevronRight className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
+              : <ChevronLeft className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
+            }
+          </button>
+        )}
+
+        {/* AI Panel — kept mounted so prompt/last-design state survives close+reopen.
+            Use the Reset button inside the panel header to clear it. */}
+        {!focusMode && (
+          <div
+            className={`flex-shrink-0 border-l border-border bg-card overflow-hidden flex flex-col transition-[width] duration-200 ${
+              aiPanelOpen ? 'w-64' : 'w-0'
+            }`}
+            aria-hidden={!aiPanelOpen}
+          >
+            {!EXPO_MODE && (
+              <WorkflowProgress
+                hasTopology={hasTopology}
+                nodeCount={nodes.length}
+                hasRooms={rooms.length > 0}
+                hasClassicBarriers={hasClassicBarriers}
+                hasVlanZonesOrVlans={vlanZones.length > 0 || vlans.length > 0}
+                hasLinks={links.length > 0}
+                insightsOpen={insightsOpen}
+                pathTraceActive={pathTraceActive}
+                failureActive={!!failureTarget}
+                exportReady={exportReadyHeuristic}
+              />
+            )}
+            <AIPanel
+              ref={aiSubmitRef}
+              onTopologyGenerated={handleTopologyGenerated}
+              onRefinement={handleRefinement}
+              hasTopology={hasTopology}
+              getMapState={() => ({ nodes, links, rooms, vlans, barriers, vlanZones, powerZones })}
+            />
+          </div>
         )}
       </div>
 

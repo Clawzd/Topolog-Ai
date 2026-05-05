@@ -351,6 +351,104 @@ function findFreePosition(preferredX, preferredY, occupiedRects, barriers = []) 
   return { x: preferredX + 120, y: preferredY + 80 };
 }
 
+// Type ranking for grid ordering inside a room: infra first, then wireless,
+// then servers, then user endpoints. Lower rank = placed earlier (top-left).
+const TIDY_TYPE_RANK = {
+  router: 0,
+  firewall: 1,
+  switch: 2,
+  loadbalancer: 3,
+  patchpanel: 4,
+  ap: 5,
+  server: 6,
+  nas: 7,
+  printer: 8,
+  pc: 9,
+  laptop: 10,
+  tablet: 11,
+  phone: 12,
+  smarttv: 13,
+  camera: 14,
+  iot: 15,
+  pdu: 16,
+  cloud: 17,
+};
+
+/**
+ * Re-grid nodes inside the rooms the AI assigned them to, so we don't preserve
+ * the spaghetti coordinates the AI emitted. Nodes outside every room keep
+ * their resolved positions. Returns a new node array; rooms are unchanged.
+ *
+ * Why: the AI puts APs at one corner of a room and endpoints scattered around,
+ * which produces fan-shaped link bundles that cross every other link. A
+ * compact centred grid per room keeps spokes short and parallel.
+ */
+function tidyNodesByRoom(nodes, rooms, offsetX, offsetY) {
+  if (!rooms || !rooms.length || !nodes || !nodes.length) return nodes;
+
+  const translatedRooms = rooms.map((r) => ({
+    ...r,
+    x: r.x + offsetX,
+    y: r.y + offsetY,
+  }));
+
+  // Bucket each node into the AI room whose original bounds contain its centre.
+  // Nodes outside every room (cloud/internet, edge router) get -1 and are left
+  // where overlap resolution put them.
+  const roomIdxByNode = new Map();
+  for (const n of nodes) {
+    if (n.isBusAnchor) {
+      roomIdxByNode.set(n.id, -1);
+      continue;
+    }
+    const cx = n.x + NODE_W / 2;
+    const cy = n.y + NODE_H / 2;
+    const idx = translatedRooms.findIndex((r) => (
+      cx >= r.x - ROOM_CLAIM_PAD &&
+      cx <= r.x + r.w + ROOM_CLAIM_PAD &&
+      cy >= r.y - ROOM_CLAIM_PAD &&
+      cy <= r.y + r.h + ROOM_CLAIM_PAD
+    ));
+    roomIdxByNode.set(n.id, idx);
+  }
+
+  const next = nodes.map((n) => ({ ...n }));
+
+  for (let ri = 0; ri < translatedRooms.length; ri += 1) {
+    const room = translatedRooms[ri];
+    const roomNodes = next.filter((n) => roomIdxByNode.get(n.id) === ri);
+    if (!roomNodes.length) continue;
+
+    roomNodes.sort((a, b) => {
+      const ra = TIDY_TYPE_RANK[a.type] ?? 99;
+      const rb = TIDY_TYPE_RANK[b.type] ?? 99;
+      if (ra !== rb) return ra - rb;
+      return String(a.label || a.id || '').localeCompare(String(b.label || b.id || ''));
+    });
+
+    const cellW = NODE_W + NODE_PAD;
+    const cellH = NODE_H + NODE_PAD;
+    const innerW = Math.max(NODE_W, room.w - ROOM_PAD * 2);
+    // Pick a column count that keeps the grid roughly square but fits the room.
+    const colsByRoom = Math.max(1, Math.floor((innerW + NODE_PAD) / cellW));
+    const colsBySqrt = Math.max(1, Math.ceil(Math.sqrt(roomNodes.length)));
+    const cols = Math.max(1, Math.min(colsByRoom, colsBySqrt));
+    const rows = Math.ceil(roomNodes.length / cols);
+
+    const gridW = cols * cellW - NODE_PAD;
+    const gridH = rows * cellH - NODE_PAD;
+    const startX = Math.round(room.x + Math.max(ROOM_PAD, (room.w - gridW) / 2));
+    const startY = Math.round(room.y + Math.max(ROOM_PAD, (room.h - gridH) / 2));
+
+    roomNodes.forEach((node, i) => {
+      node.x = startX + (i % cols) * cellW;
+      node.y = startY + Math.floor(i / cols) * cellH;
+    });
+  }
+
+  return next;
+}
+
 /**
  * Apply smart layout to a generated topology, resolving overlaps and respecting existing map state.
  * @param {object} topology - The generated topology { nodes, links, rooms, vlans }
@@ -395,8 +493,13 @@ export function applySmartLayout(topology, mapState = {}) {
     occupiedRects.push({ x: freePos.x, y: freePos.y, w: NODE_W, h: NODE_H });
   }
 
+  // Re-grid nodes inside their AI-assigned rooms before sizing those rooms,
+  // so the room bounds end up tight around a clean grid instead of around the
+  // AI's scattered coordinates.
+  const tidiedNodes = tidyNodesByRoom(adjustedNodes, topology.rooms || [], offsetX, offsetY);
+
   // Auto-size rooms to fit their contained devices
-  const adjustedRooms = autoSizeRooms(topology.rooms, adjustedNodes, offsetX, offsetY);
+  const adjustedRooms = autoSizeRooms(topology.rooms, tidiedNodes, offsetX, offsetY);
 
   // Shift any AI-emitted barriers (e.g. bus backbones) by the same offset,
   // so they stay attached to the devices that reference them.
@@ -415,7 +518,7 @@ export function applySmartLayout(topology, mapState = {}) {
 
   return {
     ...topology,
-    nodes: adjustedNodes,
+    nodes: tidiedNodes,
     rooms: adjustedRooms,
     barriers: adjustedBarriers,
   };
@@ -976,6 +1079,102 @@ export function normalizeTopologyForInferredShape(topology, topologyType, prompt
   return topology;
 }
 
+function topologyBounds(topology) {
+  const xs = [];
+  const ys = [];
+  (topology.nodes || []).forEach((n) => {
+    xs.push(n.x, n.x + NODE_W);
+    ys.push(n.y, n.y + NODE_H);
+  });
+  (topology.rooms || []).forEach((r) => {
+    xs.push(r.x, r.x + r.w);
+    ys.push(r.y, r.y + r.h);
+  });
+  (topology.barriers || []).forEach((b) => {
+    if (typeof b.x1 === 'number' && typeof b.y1 === 'number') {
+      xs.push(b.x1, typeof b.x2 === 'number' ? b.x2 : b.x1);
+      ys.push(b.y1, typeof b.y2 === 'number' ? b.y2 : b.y1);
+    }
+    if (typeof b.x === 'number' && typeof b.y === 'number') {
+      xs.push(b.x, b.x + (b.w || 0));
+      ys.push(b.y, b.y + (b.h || 0));
+    }
+  });
+  if (!xs.length || !ys.length) return null;
+  return {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs),
+    minY: Math.min(...ys),
+    maxY: Math.max(...ys),
+  };
+}
+
+export function compactAndRecenterLayout(topology, options = {}) {
+  const bounds = topologyBounds(topology);
+  if (!bounds) return topology;
+  const hasExistingCanvas = !!options.hasExistingCanvas;
+  const targetMinX = hasExistingCanvas ? bounds.minX : 80;
+  const targetMinY = hasExistingCanvas ? bounds.minY : 80;
+  const dx = targetMinX - bounds.minX;
+  const dy = targetMinY - bounds.minY;
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
+
+  let scale = 1;
+  const maxW = options.maxWidth || 1600;
+  const maxH = options.maxHeight || 1000;
+  if (width > maxW || height > maxH) {
+    scale = Math.min(maxW / Math.max(1, width), maxH / Math.max(1, height));
+  }
+  if (scale >= 0.995 && dx === 0 && dy === 0) return topology;
+
+  const cx = (bounds.minX + bounds.maxX) / 2;
+  const cy = (bounds.minY + bounds.maxY) / 2;
+  const projectPoint = (x, y) => {
+    const sx = cx + (x - cx) * scale + dx;
+    const sy = cy + (y - cy) * scale + dy;
+    return { x: Math.round(sx), y: Math.round(sy) };
+  };
+
+  const nodes = (topology.nodes || []).map((n) => {
+    const p = projectPoint(n.x, n.y);
+    return { ...n, x: p.x, y: p.y };
+  });
+  const rooms = (topology.rooms || []).map((r) => {
+    const p = projectPoint(r.x, r.y);
+    return {
+      ...r,
+      x: p.x,
+      y: p.y,
+      w: Math.max(200, Math.round((r.w || MIN_ROOM_W) * scale)),
+      h: Math.max(120, Math.round((r.h || MIN_ROOM_H) * scale)),
+    };
+  });
+  const barriers = (topology.barriers || []).map((b) => {
+    const shifted = { ...b };
+    if (typeof b.x1 === 'number' && typeof b.y1 === 'number') {
+      const p1 = projectPoint(b.x1, b.y1);
+      shifted.x1 = p1.x;
+      shifted.y1 = p1.y;
+    }
+    if (typeof b.x2 === 'number' && typeof b.y2 === 'number') {
+      const p2 = projectPoint(b.x2, b.y2);
+      shifted.x2 = p2.x;
+      shifted.y2 = p2.y;
+    }
+    if (typeof b.x === 'number' && typeof b.y === 'number') {
+      const p = projectPoint(b.x, b.y);
+      shifted.x = p.x;
+      shifted.y = p.y;
+      if (typeof b.w === 'number') shifted.w = Math.max(20, Math.round(b.w * scale));
+      if (typeof b.h === 'number') shifted.h = Math.max(20, Math.round(b.h * scale));
+    }
+    return shifted;
+  });
+
+  return { ...topology, nodes, rooms, barriers };
+}
+
 /**
  * Determine the best topology type for a given prompt.
  * Returns a recommendation with reasoning.
@@ -1014,14 +1213,17 @@ export function recommendTopology(prompt) {
     return { topology: 'tree', reason: 'Data centers and structured tiered networks benefit from a core/distribution/access hierarchy.' };
   }
 
+  // Small/local networks -> star (strict — only obvious "small site" wording).
+  // Checked BEFORE hybrid so "small office with 2 departments" stays a star
+  // instead of being escalated to a hybrid design with edge router, firewall,
+  // and core+access tiers.
+  if (/\b(small|simple|home|soho|basic|minimal|single.?room|front desk|tiny|clinic room|coffee shop|single office|one office|one room|reception)/i.test(t)) {
+    return { topology: 'star', reason: 'Small single-area networks are best represented by endpoints around one central switch or router.' };
+  }
+
   // Mixed departments/buildings/security zones -> hybrid.
   if (/\b(campus|multi.?build|enterprise|complex|mixed|departments?|student|faculty|admin|warehouse|iot|guest|operations|multiple zones|separate zones|network segments|segmented)/i.test(t)) {
     return { topology: 'hybrid', reason: 'Multiple zones, departments, or mixed wired/wireless/security needs fit a hybrid design.' };
-  }
-
-  // Small/local networks -> star (strict — only obvious "small site" wording).
-  if (/\b(small|simple|home|soho|basic|minimal|single.?room|front desk|tiny|clinic room|coffee shop|single office|one office|one room|reception)/i.test(t)) {
-    return { topology: 'star', reason: 'Small single-area networks are best represented by endpoints around one central switch or router.' };
   }
 
   if (largestCount != null && largestCount >= 24) {

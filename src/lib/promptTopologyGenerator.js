@@ -1,6 +1,7 @@
 import { MOCK_AI_RESPONSES, generateId } from './topologyData';
 import { patternIdFromPrompt, instantiateTopologyPattern, TOPOLOGY_PATTERNS } from './topologyPatterns';
-import { recommendTopology } from './smartLayout';
+import { compactAndRecenterLayout, recommendTopology } from './smartLayout';
+import { enforceRequestedCounts, parseRequestedCountSpec } from './requestedCounts';
 
 const SCENARIO_HINTS = [
   {
@@ -296,7 +297,10 @@ function synthesizeRoomsFromPrompt(topology, prompt) {
 
 function finalizePromptTopology(topology, hint) {
   const withRooms = synthesizeRoomsFromPrompt(topology, hint);
-  return appendEnvironmentBarriers(withRooms, hint);
+  const withEnvironment = appendEnvironmentBarriers(withRooms, hint);
+  const countSpec = parseRequestedCountSpec(hint);
+  const countAdjusted = enforceRequestedCounts(withEnvironment, countSpec, hint);
+  return compactAndRecenterLayout(countAdjusted, { hasExistingCanvas: false });
 }
 
 export function generatePromptTopology(userPrompt) {
