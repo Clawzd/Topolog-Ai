@@ -161,12 +161,9 @@ function promptRequestsPhysicalEnvironment(prompt) {
 
 function sanitizeGeneratedTopology(topology, prompt) {
   const normalized = normalizeTopology(topology);
-  // Environment generation is intentionally disabled for now — strip rooms and
-  // non-bus barriers so the AI can't drop devices outside rooms or stack walls
-  // incorrectly. Bus barriers stay because they're the backbone of bus topologies.
+  // Rooms are allowed; walls and other physical barriers are not (bus backbones excepted).
   return {
     ...normalized,
-    rooms: [],
     barriers: normalized.barriers.filter((barrier) => barrier.environmentKind === 'bus'),
   };
 }
@@ -200,8 +197,6 @@ function sanitizeEditResponse(edit, prompt) {
       })
       .filter((operation) => {
         if (!operation || typeof operation.op !== 'string') return false;
-        // Environment ops are disabled for now.
-        if (['add_room', 'update_room', 'delete_room', 'move_room'].includes(operation.op)) return false;
         if (operation.op !== 'add_barrier') return true;
         const barrier = operation.barrier || operation.item || operation;
         return barrier.environmentKind === 'bus';
@@ -314,8 +309,8 @@ function buildSystemPrompt(mapState) {
     '',
     '## LINK TYPES: ethernet, fiber, wifi, wan, vpn',
     '',
-    '## ENVIRONMENT / BARRIERS — DISABLED',
-    'Return `rooms: []` and `barriers: []` unless you are emitting a BUS backbone. The only barrier permitted is `environmentKind:"bus"` for bus topologies. Do NOT emit walls, doors, windows, noise, conduits, obstacles, VLAN zones, power zones, or rooms — even if the prompt mentions departments, offices, labs, floors, or physical features. The host app will add environment later.',
+    '## ENVIRONMENT / BARRIERS — DISABLED (rooms are allowed)',
+    'Return `barriers: []` unless you are emitting a BUS backbone. The only barrier permitted is `environmentKind:"bus"` for bus topologies. Do NOT emit walls, doors, windows, noise, conduits, obstacles, VLAN zones, or power zones. Rooms ARE allowed — see ROOM RULES below.',
     '',
     '## TOPOLOGY SELECTION — strict',
     recommendation ? `MANDATORY TOPOLOGY: ${recommendation.topology.toUpperCase()}` : '',
@@ -383,8 +378,15 @@ function buildSystemPrompt(mapState) {
     '- Prefer readable spacing over compact layouts: large rooms, wide gaps, and clear link paths are better than fitting into one screen.',
     '- Start around x=80, y=60, but layouts may extend beyond x=1600 and y=1000 when the request needs space.',
     '',
-    '## ROOMS / WALLS — DO NOT EMIT',
-    'Always return `rooms: []`. Do not emit walls, doors, windows, or other environment barriers (bus backbones excepted). Group devices via labels and VLANs only.',
+    '## ROOM RULES',
+    '- Create rooms/zones to logically group devices (e.g., Server Room, Office Area, Meeting Room).',
+    '- A room must contain ALL its devices with at least 72px padding on each side.',
+    '- Make rooms generously sized: minimum 360px wide and 240px tall, larger when there are more than 3 devices inside.',
+    '- Rooms must not overlap each other. Leave at least 32px gap between room rectangles.',
+    '- Put endpoint devices physically inside the matching room rectangle. Keep cloud/ISP, firewall, and core/distribution switches outside endpoint rooms unless the room label says IDF, closet, rack, or server.',
+    '- Room label must match its contents (e.g., "Finance Department" only contains finance endpoints).',
+    '- Use rgba room colors with 0.08 alpha: teal rgba(20,184,166,0.08), blue rgba(59,130,246,0.08), purple rgba(139,92,246,0.08), amber rgba(245,158,11,0.08), red rgba(239,68,68,0.08), green rgba(16,185,129,0.08).',
+    '- Do NOT emit walls or any non-bus barriers — only the rooms themselves.',
     '',
     '## PROFESSIONAL QUALITY',
     '- Use realistic IPs (10.x.x.x, 172.16.x.x, 192.168.x.x for private; 203.0.113.x for examples).',

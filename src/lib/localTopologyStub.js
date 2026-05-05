@@ -22,7 +22,9 @@ export function getLocalStubTopology(userPrompt) {
       { id: 'l5', source: 'n3', target: 'n6', type: 'ethernet', label: '' },
       { id: 'l6', source: 'n4', target: 'n7', type: 'ethernet', label: '' },
     ],
-    rooms: [],
+    rooms: [
+      { id: 'r1', label: 'Server / IDF', x: 40, y: 380, w: 520, h: 200, color: 'rgba(59,130,246,0.08)' },
+    ],
     vlans: [
       { id: 'v1', name: 'WAN', label: 'WAN', color: '#64748b', subnet: '203.0.113.0/29' },
       { id: 'v2', name: 'LAN', label: 'LAN', color: '#3b82f6', subnet: '10.0.0.0/24' },

@@ -10,13 +10,13 @@ import { patternIdFromPrompt } from '../../lib/topologyPatterns';
 import { recommendTopology } from '../../lib/smartLayout';
 
 const EXAMPLE_PROMPTS = [
-  'Small office with 15 workstations, 2 WiFi access points, a core switch, and an edge router',
-  '3-story building network: core switch, distribution switch per floor, VoIP phones, and guest WiFi APs',
-  'Home office with a router, NAS, mesh WiFi, 2 laptops, and 2 IP cameras',
-  'Retail store: edge router, core switch, 4 POS terminals, guest WiFi AP, and 3 security cameras',
-  'University campus with student, faculty, and admin VLANs, core router, and access switches',
-  'Warehouse with IoT sensors, 6 cameras, a core switch, and a protected operations VLAN',
-  'Data center edge with redundant routers, firewalls, core switches, and a storage tier',
+  'Small office with 3 rooms — Reception, Open Office (15 workstations), and Meeting Room — plus 2 WiFi APs and a core switch',
+  '3-story office: rooms for Server Room, Floor 1 Workspace, Floor 2 Workspace, Floor 3 Workspace; VoIP phones and guest WiFi APs',
+  'Home network with rooms: Living Room, Home Office, Bedroom; router, NAS, mesh WiFi, 2 laptops, 2 IP cameras',
+  'Retail store with rooms: Sales Floor, Stockroom, Back Office; 4 POS terminals, guest WiFi AP, 3 security cameras',
+  'University with rooms: Student Lab, Faculty Office, Admin Office, Server Room; separate student/faculty/admin VLANs',
+  'Warehouse with rooms: Operations Floor, Loading Dock, Server Closet; IoT sensors, 6 cameras, protected operations VLAN',
+  'Data center with rooms: Core Row, Storage Row, Edge Cage; redundant routers, firewalls, core switches, storage tier',
 ];
 
 const TOPOLOGY_LABELS = {

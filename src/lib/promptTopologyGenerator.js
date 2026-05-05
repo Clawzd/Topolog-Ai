@@ -296,12 +296,11 @@ function synthesizeRoomsFromPrompt(topology, prompt) {
 }
 
 function finalizePromptTopology(topology, hint) {
-  // Environment generation is intentionally disabled: skip room synthesis and
-  // wall/barrier inference (bus barriers from the pattern itself are kept).
+  // Rooms are allowed; walls/barriers are not (bus backbones excepted).
+  const withRooms = synthesizeRoomsFromPrompt(topology, hint);
   const stripped = {
-    ...topology,
-    rooms: [],
-    barriers: (topology.barriers || []).filter((b) => b.environmentKind === 'bus'),
+    ...withRooms,
+    barriers: (withRooms.barriers || []).filter((b) => b.environmentKind === 'bus'),
   };
   const countSpec = parseRequestedCountSpec(hint);
   const countAdjusted = enforceRequestedCounts(stripped, countSpec, hint);
