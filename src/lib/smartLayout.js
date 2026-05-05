@@ -512,6 +512,34 @@ export function applySmartLayout(topology, mapState = {}) {
     roomIdxByNode.set(node.id, idx);
   }
 
+  // Adopt roomless endpoints (phones, printers, cameras, etc.) into the room
+  // of any neighbor they're linked to — the AI often places these near their
+  // workstation but outside the room rectangle, leaving them stranded.
+  const ENDPOINT_TYPES = new Set(['pc', 'laptop', 'phone', 'printer', 'camera', 'tablet', 'iot', 'smarttv', 'nas', 'server']);
+  if (translatedAiRooms.length > 0) {
+    const links = topology.links || [];
+    // Iterate a few times so adopted nodes can adopt their own neighbors.
+    for (let pass = 0; pass < 3; pass += 1) {
+      let changed = false;
+      for (const node of topology.nodes) {
+        if (!ENDPOINT_TYPES.has(node.type)) continue;
+        if ((roomIdxByNode.get(node.id) ?? -1) >= 0) continue;
+        let adopted = -1;
+        for (const link of links) {
+          const other = link.source === node.id ? link.target : link.target === node.id ? link.source : null;
+          if (!other) continue;
+          const otherIdx = roomIdxByNode.get(other) ?? -1;
+          if (otherIdx >= 0) { adopted = otherIdx; break; }
+        }
+        if (adopted >= 0) {
+          roomIdxByNode.set(node.id, adopted);
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+  }
+
   // Resolve overlaps only for nodes that are NOT inside an AI room — room
   // members will be re-gridded inside their room by tidyNodesByRoom.
   const adjustedNodes = [];
