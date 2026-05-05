@@ -10,13 +10,13 @@ import { patternIdFromPrompt } from '../../lib/topologyPatterns';
 import { recommendTopology } from '../../lib/smartLayout';
 
 const EXAMPLE_PROMPTS = [
-  'Small office with 15 employees, 2 departments, WiFi coverage throughout, a glass meeting-room wall, and one server-closet door',
-  '3-story building with server room, VoIP phones, guest WiFi, concrete stairwell walls, and cable conduit between floors',
-  'Home office with NAS, IP cameras, mesh WiFi system, brick exterior walls, and furniture obstacles near the living room',
-  'Retail store with POS terminals, guest WiFi, security cameras, glass storefront windows, and metal shelving obstacles',
-  'University campus with student, faculty, and admin network segments, separate rooms, concrete lab wall, faculty glass partition, and RF noise near the cafeteria',
-  'Warehouse with IoT sensors, cameras, protected operations VLAN, metal rack obstacles, loading dock doors, and cable tray raceways',
-  'Data center edge with redundant routers, firewalls, storage tier, server-room walls, cable trays, and an RF-shielded secure cage',
+  'Small office with 15 workstations, 2 WiFi access points, a core switch, and an edge router',
+  '3-story building network: core switch, distribution switch per floor, VoIP phones, and guest WiFi APs',
+  'Home office with a router, NAS, mesh WiFi, 2 laptops, and 2 IP cameras',
+  'Retail store: edge router, core switch, 4 POS terminals, guest WiFi AP, and 3 security cameras',
+  'University campus with student, faculty, and admin VLANs, core router, and access switches',
+  'Warehouse with IoT sensors, 6 cameras, a core switch, and a protected operations VLAN',
+  'Data center edge with redundant routers, firewalls, core switches, and a storage tier',
 ];
 
 const TOPOLOGY_LABELS = {

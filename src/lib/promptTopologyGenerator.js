@@ -296,10 +296,15 @@ function synthesizeRoomsFromPrompt(topology, prompt) {
 }
 
 function finalizePromptTopology(topology, hint) {
-  const withRooms = synthesizeRoomsFromPrompt(topology, hint);
-  const withEnvironment = appendEnvironmentBarriers(withRooms, hint);
+  // Environment generation is intentionally disabled: skip room synthesis and
+  // wall/barrier inference (bus barriers from the pattern itself are kept).
+  const stripped = {
+    ...topology,
+    rooms: [],
+    barriers: (topology.barriers || []).filter((b) => b.environmentKind === 'bus'),
+  };
   const countSpec = parseRequestedCountSpec(hint);
-  const countAdjusted = enforceRequestedCounts(withEnvironment, countSpec, hint);
+  const countAdjusted = enforceRequestedCounts(stripped, countSpec, hint);
   return compactAndRecenterLayout(countAdjusted, { hasExistingCanvas: false });
 }
 

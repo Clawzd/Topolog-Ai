@@ -161,10 +161,12 @@ function promptRequestsPhysicalEnvironment(prompt) {
 
 function sanitizeGeneratedTopology(topology, prompt) {
   const normalized = normalizeTopology(topology);
-  if (promptRequestsPhysicalEnvironment(prompt)) return normalized;
-
+  // Environment generation is intentionally disabled for now — strip rooms and
+  // non-bus barriers so the AI can't drop devices outside rooms or stack walls
+  // incorrectly. Bus barriers stay because they're the backbone of bus topologies.
   return {
     ...normalized,
+    rooms: [],
     barriers: normalized.barriers.filter((barrier) => barrier.environmentKind === 'bus'),
   };
 }
@@ -183,7 +185,6 @@ function finalizeGeneratedTopology(topology, prompt, mapState) {
 
 function sanitizeEditResponse(edit, prompt) {
   const operations = Array.isArray(edit?.operations) ? edit.operations : [];
-  const physicalEnvironmentAllowed = promptRequestsPhysicalEnvironment(prompt);
 
   return {
     summary: edit?.summary || 'Updated the current topology.',
@@ -199,9 +200,11 @@ function sanitizeEditResponse(edit, prompt) {
       })
       .filter((operation) => {
         if (!operation || typeof operation.op !== 'string') return false;
+        // Environment ops are disabled for now.
+        if (['add_room', 'update_room', 'delete_room', 'move_room'].includes(operation.op)) return false;
         if (operation.op !== 'add_barrier') return true;
         const barrier = operation.barrier || operation.item || operation;
-        return physicalEnvironmentAllowed || barrier.environmentKind === 'bus';
+        return barrier.environmentKind === 'bus';
       }),
   };
 }
@@ -311,16 +314,8 @@ function buildSystemPrompt(mapState) {
     '',
     '## LINK TYPES: ethernet, fiber, wifi, wan, vpn',
     '',
-    '## ENVIRONMENT / BARRIER TYPES (optional when requested):',
-    'Use `barriers` for physical/environment elements with `shape:"line"` when the prompt asks for them.',
-    'Do not include wall, door, window, noise, conduit, or obstacle barriers unless the user explicitly asks for physical environment elements. Network segments, VLAN segments, departments, and rooms do not mean walls.',
-    '- `environmentKind:"wall"` for walls and partitions with materials like drywall, glass, brick, concrete, metal, wood, water, or rf_shield.',
-    '- `environmentKind:"door"` for doors and openings.',
-    '- `environmentKind:"window"` for windows or glass spans.',
-    '- `environmentKind:"noise"` for interference or RF noise sources.',
-    '- `environmentKind:"conduit"` for cable raceways or conduits.',
-    '- `environmentKind:"obstacle"` for shelves, cabinets, furniture, or physical blockers.',
-    '- `environmentKind:"bus"` only for bus topology backbones.',
+    '## ENVIRONMENT / BARRIERS — DISABLED',
+    'Return `rooms: []` and `barriers: []` unless you are emitting a BUS backbone. The only barrier permitted is `environmentKind:"bus"` for bus topologies. Do NOT emit walls, doors, windows, noise, conduits, obstacles, VLAN zones, power zones, or rooms — even if the prompt mentions departments, offices, labs, floors, or physical features. The host app will add environment later.',
     '',
     '## TOPOLOGY SELECTION — strict',
     recommendation ? `MANDATORY TOPOLOGY: ${recommendation.topology.toUpperCase()}` : '',
@@ -388,39 +383,8 @@ function buildSystemPrompt(mapState) {
     '- Prefer readable spacing over compact layouts: large rooms, wide gaps, and clear link paths are better than fitting into one screen.',
     '- Start around x=80, y=60, but layouts may extend beyond x=1600 and y=1000 when the request needs space.',
     '',
-    '## ROOM RULES',
-    '- Create rooms/zones to logically group devices (e.g., Server Room, Office Area, Security Zone).',
-    '- Room must be large enough to contain ALL its devices with at least 72px padding on each side.',
-    '- Make rooms generously sized: minimum 360px wide and 240px tall for endpoint rooms, larger when there are more than 3 devices.',
-    '- Rooms must not overlap each other. Leave at least 32px gap between room rectangles.',
-    '- Put endpoint devices physically inside the matching room rectangle. Do not put core/distribution switches inside endpoint rooms unless the room label says IDF, closet, rack, or server.',
-    '- Keep cloud/ISP, firewall, core routers, and distribution switches outside user rooms unless explicitly requested.',
-    '- Room label must match its contents: Student Lab contains student endpoints, Faculty Office contains faculty endpoints, Admin Office contains admin endpoints.',
-    '- Room color should use rgba with 0.08 alpha for subtle background.',
-    '- Use distinct colors per room: teal rgba(20,184,166,0.08), blue rgba(59,130,246,0.08), purple rgba(139,92,246,0.08), amber rgba(245,158,11,0.08), red rgba(239,68,68,0.08), green rgba(16,185,129,0.08).',
-    '',
-    '## ENVIRONMENT RULES',
-    '- If the prompt mentions walls, barriers, thick concrete, glass partitions, doors, windows, obstacles, interference, or conduit/raceway, include matching `barriers` entries.',
-    '- If the prompt only mentions network segmentation, VLANs, departments, offices, labs, or rooms, do NOT add walls or other physical barriers.',
-    '- Keep environment lines near the relevant rooms or between zones so they explain the floorplan.',
-    '- Do not draw environment lines across unrelated rooms or through the topology core. A staff-room wall belongs inside or directly around the staff room.',
-    '- For U-shaped or multi-segment walls, emit separate straight `barriers` entries for each segment with clear labels.',
-    '- Concrete, brick, and metal walls should normally use `blocksWifi:true`; walls and obstacles should usually use `blocksCablePath:true`.',
-    '- Doors and windows should usually use `blocksCablePath:false` and lighter materials like drywall or glass.',
-    '- Do not place devices directly on top of barriers.',
-    '',
-    '## WALL GEOMETRY (critical — get coordinates right):',
-    '- Walls are LINE segments with `shape:"line"` and `(x1,y1,x2,y2)` in canvas pixels — NOT relative to a room.',
-    '- A wall MUST be either horizontal (`y1===y2`) or vertical (`x1===x2`). Do not emit diagonals; the canvas snaps them anyway.',
-    '- The wall LENGTH should match the side it represents:',
-    '  - North/south exterior walls: x1=room.x-12, x2=room.x+room.w+12, y1=y2=room.y-12 (north) or room.y+room.h+12 (south).',
-    '  - East/west exterior walls: y1=room.y-12, y2=room.y+room.h+12, x1=x2=room.x-12 (west) or room.x+room.w+12 (east).',
-    '  - Interior partitions: span only the part of the room they actually divide (use a label like "Interior partition" so the renderer keeps the AI position).',
-    '- Label each wall with its compass direction or function: "North wall — concrete", "Interior partition — drywall", "Server-room east wall — RF shield". The renderer matches walls to rooms by these label keywords, so include the room name when possible.',
-    '- Keep walls fully within the canvas (x in [40, 1800], y in [40, 1200]). Do not emit zero-length walls (`x1===x2 AND y1===y2`).',
-    '- Multiple walls around the same room must use DIFFERENT sides — never stack two "north walls" on the same edge of one room.',
-    '- Doors/windows are short segments (40–80px) on a wall edge; place them where the wall would naturally have an opening, not in the middle of the room.',
-    '- If the prompt names a specific wall (e.g. "thick concrete wall between server room and lobby"), draw it BETWEEN those two rooms — pick the shared edge, not a random side.',
+    '## ROOMS / WALLS — DO NOT EMIT',
+    'Always return `rooms: []`. Do not emit walls, doors, windows, or other environment barriers (bus backbones excepted). Group devices via labels and VLANs only.',
     '',
     '## PROFESSIONAL QUALITY',
     '- Use realistic IPs (10.x.x.x, 172.16.x.x, 192.168.x.x for private; 203.0.113.x for examples).',
