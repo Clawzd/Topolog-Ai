@@ -340,6 +340,7 @@ const AIPanel = forwardRef(
         )}
       </div>
 
+      <div className="flex-1 overflow-y-auto min-h-0">
       {/* Prompt input */}
       <div className="p-3 border-b border-border">
         <form onSubmit={handleSubmit}>
@@ -471,7 +472,7 @@ const AIPanel = forwardRef(
 
       {/* History */}
       {history.length > 0 && (
-        <div className="flex-1 overflow-y-auto p-3">
+        <div className="p-3">
           <p className="text-[9px] text-muted-foreground uppercase tracking-widest mb-2">Recent Generations</p>
           <div className="space-y-2">
             {history.map(h => (
@@ -494,6 +495,7 @@ const AIPanel = forwardRef(
           </div>
         </div>
       )}
+      </div>
     </div>
   );
   }
