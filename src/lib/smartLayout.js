@@ -5,13 +5,13 @@
 
 const NODE_W = 90;
 const NODE_H = 56;
-const NODE_PAD = 24; // minimum gap between nodes
-const ROOM_PAD = 72; // generous padding inside room edges for readable floorplans
+const NODE_PAD = 32; // minimum gap between nodes
+const ROOM_PAD = 96; // generous padding inside room edges for readable floorplans
 const ROOM_CLAIM_PAD = 8; // small tolerance for imperfect AI room coordinates
 const ENV_ROOM_GAP = 12;
-const MIN_ROOM_W = 360;
-const MIN_ROOM_H = 240;
-const ROOM_GAP = 32;
+const MIN_ROOM_W = 480;
+const MIN_ROOM_H = 320;
+const ROOM_GAP = 64;
 const BUS_ENDPOINT_GAP = 132;
 const BUS_ROOM_PAD_X = 96;
 const BUS_ROOM_PAD_Y = 82;
@@ -582,12 +582,79 @@ export function applySmartLayout(topology, mapState = {}) {
   });
   const adjustedBarriers = normalizeEnvironmentBarriers(shiftedBarriers, adjustedRooms);
 
+  // Rescue orphan endpoints: any AP / endpoint with zero links gets connected
+  // to the most plausible upstream — the switch in its own room first, then
+  // any switch in the topology, then any router/firewall. Otherwise the
+  // rendered topology shows them as "Isolated".
+  const repairedLinks = repairOrphanEndpoints(
+    topology.links || [],
+    sizedNodes,
+    roomIdxByNode,
+  );
+
   return {
     ...topology,
     nodes: sizedNodes,
+    links: repairedLinks,
     rooms: adjustedRooms,
     barriers: adjustedBarriers,
   };
+}
+
+const ORPHAN_RESCUE_TYPES = new Set(['ap', 'pc', 'laptop', 'phone', 'printer', 'camera', 'tablet', 'iot', 'smarttv', 'nas', 'server']);
+const UPSTREAM_HUB_TYPES = ['switch', 'router', 'firewall'];
+
+function repairOrphanEndpoints(links, nodes, roomIdxByNode) {
+  if (!nodes?.length) return links;
+  const linksOut = [...links];
+  const linkedIds = new Set();
+  for (const link of linksOut) {
+    if (link.source) linkedIds.add(link.source);
+    if (link.target) linkedIds.add(link.target);
+  }
+
+  const switchByRoom = new Map();
+  for (const node of nodes) {
+    if (node.type !== 'switch') continue;
+    const ri = roomIdxByNode.get(node.id);
+    if (ri == null || ri < 0) continue;
+    if (!switchByRoom.has(ri)) switchByRoom.set(ri, node.id);
+  }
+
+  const fallbackHub = (() => {
+    for (const t of UPSTREAM_HUB_TYPES) {
+      const hit = nodes.find((n) => n.type === t);
+      if (hit) return hit.id;
+    }
+    return null;
+  })();
+
+  let nextId = 1;
+  const used = new Set(linksOut.map((l) => l.id).filter(Boolean));
+  const mintId = () => {
+    while (used.has(`ll${nextId}`)) nextId += 1;
+    const id = `ll${nextId}`;
+    used.add(id);
+    return id;
+  };
+
+  for (const node of nodes) {
+    if (!ORPHAN_RESCUE_TYPES.has(node.type)) continue;
+    if (linkedIds.has(node.id)) continue;
+    const ri = roomIdxByNode.get(node.id);
+    const upstream = (ri != null && ri >= 0 && switchByRoom.get(ri)) || fallbackHub;
+    if (!upstream || upstream === node.id) continue;
+    linksOut.push({
+      id: mintId(),
+      source: upstream,
+      target: node.id,
+      type: node.type === 'ap' ? 'ethernet' : 'ethernet',
+      label: '',
+    });
+    linkedIds.add(node.id);
+  }
+
+  return linksOut;
 }
 
 /**
