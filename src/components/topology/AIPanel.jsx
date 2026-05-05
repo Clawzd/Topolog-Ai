@@ -428,7 +428,7 @@ const AIPanel = forwardRef(
               <div>
                 <p className="text-[10px] font-medium text-foreground">Rooms and zones</p>
                 {latestInsight.rooms.length > 0 ? (
-                  <div className="mt-1.5 max-h-28 space-y-1.5 overflow-y-auto pr-1">
+                  <div className="mt-1.5 space-y-1.5">
                     {latestInsight.rooms.map((room) => (
                       <div key={room.id} className="rounded-md bg-muted/55 px-2.5 py-1.5">
                         <p className="text-[10px] font-medium text-foreground">{room.label}</p>
