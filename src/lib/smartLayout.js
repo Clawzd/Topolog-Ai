@@ -383,7 +383,7 @@ const TIDY_TYPE_RANK = {
  * which produces fan-shaped link bundles that cross every other link. A
  * compact centred grid per room keeps spokes short and parallel.
  */
-function tidyNodesByRoom(nodes, rooms, offsetX, offsetY) {
+function tidyNodesByRoom(nodes, rooms, offsetX, offsetY, prebucketed = null) {
   if (!rooms || !rooms.length || !nodes || !nodes.length) return nodes;
 
   const translatedRooms = rooms.map((r) => ({
@@ -392,24 +392,26 @@ function tidyNodesByRoom(nodes, rooms, offsetX, offsetY) {
     y: r.y + offsetY,
   }));
 
-  // Bucket each node into the AI room whose original bounds contain its centre.
-  // Nodes outside every room (cloud/internet, edge router) get -1 and are left
-  // where overlap resolution put them.
-  const roomIdxByNode = new Map();
-  for (const n of nodes) {
-    if (n.isBusAnchor) {
-      roomIdxByNode.set(n.id, -1);
-      continue;
+  // Prefer the explicit room assignment computed from the AI's ORIGINAL
+  // coordinates: the overlap-resolution pass below may have nudged a node out
+  // of its room, but that should not strip its room membership.
+  const roomIdxByNode = prebucketed instanceof Map ? prebucketed : new Map();
+  if (!(prebucketed instanceof Map)) {
+    for (const n of nodes) {
+      if (n.isBusAnchor) {
+        roomIdxByNode.set(n.id, -1);
+        continue;
+      }
+      const cx = n.x + NODE_W / 2;
+      const cy = n.y + NODE_H / 2;
+      const idx = translatedRooms.findIndex((r) => (
+        cx >= r.x - ROOM_CLAIM_PAD &&
+        cx <= r.x + r.w + ROOM_CLAIM_PAD &&
+        cy >= r.y - ROOM_CLAIM_PAD &&
+        cy <= r.y + r.h + ROOM_CLAIM_PAD
+      ));
+      roomIdxByNode.set(n.id, idx);
     }
-    const cx = n.x + NODE_W / 2;
-    const cy = n.y + NODE_H / 2;
-    const idx = translatedRooms.findIndex((r) => (
-      cx >= r.x - ROOM_CLAIM_PAD &&
-      cx <= r.x + r.w + ROOM_CLAIM_PAD &&
-      cy >= r.y - ROOM_CLAIM_PAD &&
-      cy <= r.y + r.h + ROOM_CLAIM_PAD
-    ));
-    roomIdxByNode.set(n.id, idx);
   }
 
   const next = nodes.map((n) => ({ ...n }));
@@ -483,11 +485,44 @@ export function applySmartLayout(topology, mapState = {}) {
     offsetY = 0;
   }
 
-  // Resolve overlaps for each new node
+  // Bucket nodes against the AI's ORIGINAL room coordinates before any
+  // overlap resolution moves them. Otherwise findFreePosition can shove a
+  // device out of its assigned room and tidyNodesByRoom would never put it
+  // back, leaving rooms half-empty.
+  const aiRooms = topology.rooms || [];
+  const translatedAiRooms = aiRooms.map((r) => ({
+    ...r,
+    x: r.x + offsetX,
+    y: r.y + offsetY,
+  }));
+  const roomIdxByNode = new Map();
+  for (const node of topology.nodes) {
+    if (node.isBusAnchor) {
+      roomIdxByNode.set(node.id, -1);
+      continue;
+    }
+    const cx = (node.x + offsetX) + NODE_W / 2;
+    const cy = (node.y + offsetY) + NODE_H / 2;
+    const idx = translatedAiRooms.findIndex((r) => (
+      cx >= r.x - ROOM_CLAIM_PAD &&
+      cx <= r.x + r.w + ROOM_CLAIM_PAD &&
+      cy >= r.y - ROOM_CLAIM_PAD &&
+      cy <= r.y + r.h + ROOM_CLAIM_PAD
+    ));
+    roomIdxByNode.set(node.id, idx);
+  }
+
+  // Resolve overlaps only for nodes that are NOT inside an AI room — room
+  // members will be re-gridded inside their room by tidyNodesByRoom.
   const adjustedNodes = [];
   for (const node of topology.nodes) {
     const preferredX = node.x + offsetX;
     const preferredY = node.y + offsetY;
+    const inRoom = (roomIdxByNode.get(node.id) ?? -1) >= 0;
+    if (inRoom) {
+      adjustedNodes.push({ ...node, x: preferredX, y: preferredY });
+      continue;
+    }
     const freePos = findFreePosition(preferredX, preferredY, occupiedRects, existingBarriers);
     adjustedNodes.push({ ...node, x: freePos.x, y: freePos.y });
     occupiedRects.push({ x: freePos.x, y: freePos.y, w: NODE_W, h: NODE_H });
@@ -496,10 +531,13 @@ export function applySmartLayout(topology, mapState = {}) {
   // Re-grid nodes inside their AI-assigned rooms before sizing those rooms,
   // so the room bounds end up tight around a clean grid instead of around the
   // AI's scattered coordinates.
-  const tidiedNodes = tidyNodesByRoom(adjustedNodes, topology.rooms || [], offsetX, offsetY);
+  const tidiedNodes = tidyNodesByRoom(adjustedNodes, aiRooms, offsetX, offsetY, roomIdxByNode);
 
-  // Auto-size rooms to fit their contained devices
-  const adjustedRooms = autoSizeRooms(topology.rooms, tidiedNodes, offsetX, offsetY);
+  // Auto-size rooms to fit their contained devices, and move their nodes with
+  // them when the separation pass shifts a room.
+  const sizing = autoSizeRooms(topology.rooms, tidiedNodes, offsetX, offsetY);
+  const adjustedRooms = sizing.rooms;
+  const sizedNodes = sizing.nodes;
 
   // Shift any AI-emitted barriers (e.g. bus backbones) by the same offset,
   // so they stay attached to the devices that reference them.
@@ -518,7 +556,7 @@ export function applySmartLayout(topology, mapState = {}) {
 
   return {
     ...topology,
-    nodes: tidiedNodes,
+    nodes: sizedNodes,
     rooms: adjustedRooms,
     barriers: adjustedBarriers,
   };
@@ -531,7 +569,7 @@ export function applySmartLayout(topology, mapState = {}) {
  * After sizing, a separation pass pushes any still-overlapping rooms apart.
  */
 function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
-  if (!rooms || rooms.length === 0) return [];
+  if (!rooms || rooms.length === 0) return { rooms: [], nodes: adjustedNodes };
 
   // Translate room origins to canvas coordinates.
   const rects = rooms.map(room => ({
@@ -595,6 +633,10 @@ function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
     };
   });
 
+  // Snapshot pre-separation positions so we can move bucketed nodes alongside
+  // their room when the next pass shifts overlapping rooms apart.
+  const preSeparation = sized.map((r) => ({ x: r.x, y: r.y }));
+
   // Separation pass: push overlapping rooms apart (up to 10 iterations).
   const GAP = ROOM_GAP; // minimum gap between room edges
   for (let iter = 0; iter < 10; iter++) {
@@ -625,7 +667,24 @@ function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
     if (!moved) break;
   }
 
-  return sized;
+  // Apply each room's separation delta to the nodes it claimed, so devices
+  // travel with their room rather than getting stranded.
+  const nodeDelta = new Map();
+  sized.forEach((room, i) => {
+    const dx = room.x - preSeparation[i].x;
+    const dy = room.y - preSeparation[i].y;
+    if (dx === 0 && dy === 0) return;
+    for (const n of buckets[i]) {
+      nodeDelta.set(n.id, { dx, dy });
+    }
+  });
+  const movedNodes = adjustedNodes.map((n) => {
+    const d = nodeDelta.get(n.id);
+    if (!d) return n;
+    return { ...n, x: n.x + d.dx, y: n.y + d.dy };
+  });
+
+  return { rooms: sized, nodes: movedNodes };
 }
 
 function isBusBarrier(barrier) {
