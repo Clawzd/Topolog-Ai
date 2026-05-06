@@ -516,6 +516,11 @@ export default function TopologAi() {
       setBarriers(nextTopology.barriers || []);
       setVlanZones(nextTopology.vlanZones || []);
       setPowerZones(nextTopology.powerZones || []);
+      // Reset the viewport so the new topology lands in view. Fresh
+      // generations always normalize to (~80,80) origin, but the user may
+      // have panned/zoomed away while editing the previous one.
+      setZoom(1);
+      setPan({ x: 60, y: 60 });
     }
     if (prompt) setCurrentPrompt(prompt);
     setSelectedId(null);
