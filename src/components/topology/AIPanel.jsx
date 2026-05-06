@@ -9,32 +9,25 @@ import { DEVICE_TYPES, generateId } from '../../lib/topologyData';
 import { patternIdFromPrompt } from '../../lib/topologyPatterns';
 import { recommendTopology } from '../../lib/smartLayout';
 
-// Example prompts are written as explicit per-room device lists so the LLM
-// does not have to disambiguate parentheticals or guess what each room
-// contains. Keep counts hard-attached to the room name (no "(15 ws)" style)
-// and name the device type the user actually wants (pc vs laptop). Topology
-// shape is left out so recommendTopology infers it from the scenario.
+// Curated 16-prompt expo carousel: 10 spec-style room/device lists chosen
+// for scenario diversity (small office to data center, multiple VLAN cases,
+// star/tree/mesh shapes the AI will infer) plus 6 open-ended "help me
+// design this" prompts in a non-technical user's voice. Topology shape is
+// never spelled out — recommendTopology infers it from scenario keywords.
 const EXAMPLE_PROMPTS = [
+  // Spec-style — explicit per-room device lists.
   'Small office. Reception: 1 desktop PC, 1 WiFi access point. Open Office: 15 desktop workstations, 1 WiFi access point. Meeting Room: empty. One core switch connects every device.',
   '3-story office. Server Room: 1 server. Floor 1 Workspace: 8 VoIP phones, 1 guest WiFi AP. Floor 2 Workspace: 8 VoIP phones, 1 guest WiFi AP. Floor 3 Workspace: 8 VoIP phones, 1 guest WiFi AP. Per-floor access switches feed one core switch in the Server Room.',
-  'Home network. Living Room: 1 mesh WiFi AP, 1 NAS. Home Office: 1 router, 2 laptops. Bedroom: 1 mesh WiFi AP, 2 IP cameras. Router uplinks to the internet.',
   'Retail store. Sales Floor: 4 POS terminals (PCs), 1 guest WiFi AP, 3 security cameras. Stockroom: empty. Back Office: 1 core switch. All devices connect to the core switch.',
   'University campus. Student Lab: 12 desktop PCs on a student VLAN. Faculty Office: 6 laptops on a faculty VLAN. Admin Office: 4 laptops on an admin VLAN. Server Room: 2 servers, 1 core switch, 1 firewall. One distribution switch per room feeds the core.',
-  'Warehouse. Operations Floor: 8 IoT sensors and 6 IP cameras on a protected operations VLAN. Loading Dock: 2 IP cameras. Server Closet: 1 core switch, 1 firewall. Every device connects to the core switch.',
   'Data center. Core Row: 2 redundant core switches and 2 redundant routers, all interconnected for failover. Storage Row: 4 servers, 2 NAS units. Edge Cage: 2 firewalls. Each access switch in Storage Row uplinks to both core switches.',
   'Hospital wing. Reception: 2 desktop PCs, 1 WiFi access point. Nurse Station: 4 desktop PCs, 1 printer. Patient Rooms: 6 IP phones, 1 WiFi access point. Server Room: 1 server, 1 core switch, 1 firewall. Per-zone access switches feed the core.',
   'High school computer lab. Lab Room A: 24 desktop PCs. Lab Room B: 24 desktop PCs. Teacher Office: 2 laptops, 1 printer. IT Closet: 1 core switch, 1 firewall. Each lab has its own access switch uplinked to the core.',
-  'Coworking space. Hot Desk Area: 20 laptops, 2 WiFi access points. Phone Booth Row: 6 IP phones. Reception: 1 desktop PC, 1 printer. Server Closet: 1 core switch, 1 firewall, 1 NAS. All access switches feed the core.',
-  'Coffee shop. Counter: 2 POS terminals (PCs), 1 printer. Seating Area: 2 guest WiFi access points. Back Office: 1 router, 1 core switch. Router uplinks to the internet.',
   'Manufacturing plant. Production Floor: 12 IoT sensors, 4 IP cameras. Quality Lab: 4 desktop PCs. Control Room: 2 servers, 1 core switch, 1 firewall. Operations VLAN segregates the floor sensors from the lab and control traffic.',
   'Bank branch. Teller Line: 5 desktop PCs, 1 printer. Manager Office: 1 laptop, 1 printer. ATM Vestibule: 2 ATM terminals (PCs), 4 security cameras. Server Closet: 1 core switch, 1 firewall, 1 NAS. Cameras stay on a protected surveillance VLAN.',
-  'Hotel floor. Lobby: 1 desktop PC, 2 guest WiFi access points. Guest Rooms: 12 smart TVs, 4 WiFi access points. Back Office: 1 router, 1 core switch. Guest VLAN separates room devices from staff PCs.',
-  'Apartment building riser. Floor 1 Hallway: 1 mesh WiFi AP. Floor 2 Hallway: 1 mesh WiFi AP. Floor 3 Hallway: 1 mesh WiFi AP. Roof Cabinet: 1 router, 1 core switch. Each floor AP uplinks down to the roof cabinet.',
   'Corporate HQ. Reception: 1 desktop PC, 2 IP phones. Open Office Floor 2: 30 laptops, 4 WiFi access points. Open Office Floor 3: 30 laptops, 4 WiFi access points. Conference Rooms: 6 smart TVs. Server Room: 2 servers, 1 core switch, 1 firewall, 1 NAS. Per-floor distribution switches feed the core.',
-  // Open-ended prompts — the user only knows their rooms and rough head
-  // count and is asking the AI to figure out the network. The system prompt
-  // tells the model to default to a SMALL design and only emit gear that
-  // the scenario obviously needs.
+  // Open-ended — non-technical user describes rooms + headcount and asks
+  // the AI to recommend the gear. Default to SMALL designs (system prompt).
   'I have a small office with 3 rooms and about 10 employees. What network should I set up?',
   'Opening a new clinic with a reception, two exam rooms, and a small back office. Around 8 staff. Help me design the network.',
   'Renovating a 4-room dental practice and need a basic network. Not sure what equipment we need.',
