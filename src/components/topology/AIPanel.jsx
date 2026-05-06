@@ -9,14 +9,19 @@ import { DEVICE_TYPES, generateId } from '../../lib/topologyData';
 import { patternIdFromPrompt } from '../../lib/topologyPatterns';
 import { recommendTopology } from '../../lib/smartLayout';
 
+// Example prompts are written as explicit per-room device lists so the LLM
+// does not have to disambiguate parentheticals or guess what each room
+// contains. Keep counts hard-attached to the room name (no "(15 ws)" style),
+// and name the device type the user actually wants (pc vs laptop) — the AI
+// will otherwise add laptops alongside requested PCs to "fill out" a room.
 const EXAMPLE_PROMPTS = [
-  'Small office with 3 rooms — Reception, Open Office (15 workstations), and Meeting Room — plus 2 WiFi APs and a core switch',
-  '3-story office: rooms for Server Room, Floor 1 Workspace, Floor 2 Workspace, Floor 3 Workspace; VoIP phones and guest WiFi APs',
-  'Home network with rooms: Living Room, Home Office, Bedroom; router, NAS, mesh WiFi, 2 laptops, 2 IP cameras',
-  'Retail store with rooms: Sales Floor, Stockroom, Back Office; 4 POS terminals, guest WiFi AP, 3 security cameras',
-  'University with rooms: Student Lab, Faculty Office, Admin Office, Server Room; separate student/faculty/admin VLANs',
-  'Warehouse with rooms: Operations Floor, Loading Dock, Server Closet; IoT sensors, 6 cameras, protected operations VLAN',
-  'Data center with rooms: Core Row, Storage Row, Edge Cage; redundant routers, firewalls, core switches, storage tier',
+  'Small office, star topology. Reception: 1 desktop PC, 1 WiFi access point. Open Office: 15 desktop workstations, 1 WiFi access point. Meeting Room: empty. One core switch connects every device. Use only PCs, switches, and APs — do not add laptops, phones, printers, cameras, or other devices.',
+  '3-story office, tree topology. Server Room: 1 server. Floor 1 Workspace: 8 VoIP phones, 1 guest WiFi AP. Floor 2 Workspace: 8 VoIP phones, 1 guest WiFi AP. Floor 3 Workspace: 8 VoIP phones, 1 guest WiFi AP. Per-floor access switches feed one core switch in the Server Room. No PCs, laptops, printers, or cameras.',
+  'Home network, star topology. Living Room: 1 mesh WiFi AP, 1 NAS. Home Office: 1 router, 2 laptops. Bedroom: 1 mesh WiFi AP, 2 IP cameras. Router uplinks to the internet. No phones, printers, or extra workstations.',
+  'Retail store, star topology. Sales Floor: 4 POS terminals (PCs), 1 guest WiFi AP, 3 security cameras. Stockroom: empty. Back Office: 1 core switch. All devices connect to the core switch. No laptops, phones, or printers.',
+  'University campus, tree topology. Student Lab: 12 desktop PCs on a student VLAN. Faculty Office: 6 laptops on a faculty VLAN. Admin Office: 4 laptops on an admin VLAN. Server Room: 2 servers, 1 core switch, 1 firewall. One distribution switch per room feeds the core. No phones, printers, cameras, or tablets.',
+  'Warehouse, star topology. Operations Floor: 8 IoT sensors and 6 IP cameras on a protected operations VLAN. Loading Dock: 2 IP cameras. Server Closet: 1 core switch, 1 firewall. Every device connects to the core switch. No PCs, laptops, phones, or printers.',
+  'Data center, mesh topology between core devices. Core Row: 2 redundant core switches and 2 redundant routers, all interconnected. Storage Row: 4 servers, 2 NAS units. Edge Cage: 2 firewalls. Each access switch in Storage Row uplinks to both core switches. No PCs, laptops, phones, cameras, or printers.',
 ];
 
 const TOPOLOGY_LABELS = {
