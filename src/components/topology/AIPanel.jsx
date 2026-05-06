@@ -31,6 +31,16 @@ const EXAMPLE_PROMPTS = [
   'Hotel floor. Lobby: 1 desktop PC, 2 guest WiFi access points. Guest Rooms: 12 smart TVs, 4 WiFi access points. Back Office: 1 router, 1 core switch. Guest VLAN separates room devices from staff PCs.',
   'Apartment building riser. Floor 1 Hallway: 1 mesh WiFi AP. Floor 2 Hallway: 1 mesh WiFi AP. Floor 3 Hallway: 1 mesh WiFi AP. Roof Cabinet: 1 router, 1 core switch. Each floor AP uplinks down to the roof cabinet.',
   'Corporate HQ. Reception: 1 desktop PC, 2 IP phones. Open Office Floor 2: 30 laptops, 4 WiFi access points. Open Office Floor 3: 30 laptops, 4 WiFi access points. Conference Rooms: 6 smart TVs. Server Room: 2 servers, 1 core switch, 1 firewall, 1 NAS. Per-floor distribution switches feed the core.',
+  // Open-ended prompts — the user only knows their rooms and rough head
+  // count and is asking the AI to figure out the network. The system prompt
+  // tells the model to default to a SMALL design and only emit gear that
+  // the scenario obviously needs.
+  'I have a small office with 3 rooms and about 10 employees. What network should I set up?',
+  'Opening a new clinic with a reception, two exam rooms, and a small back office. Around 8 staff. Help me design the network.',
+  'Renovating a 4-room dental practice and need a basic network. Not sure what equipment we need.',
+  'My startup just rented a single open-floor space for 25 people. What do I need to get them online?',
+  'Setting up a small library with a reading area, a computer corner with 6 PCs for visitors, and a staff office. Suggest a network.',
+  'Family home with 3 bedrooms, a living room, and a home office. About 8 devices total. Recommend a setup.',
 ];
 
 const TOPOLOGY_LABELS = {
