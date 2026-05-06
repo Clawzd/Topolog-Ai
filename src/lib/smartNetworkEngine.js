@@ -738,6 +738,22 @@ export function computeSmartTopology({
   const nodeById = Object.fromEntries(nodes.map(n => [n.id, n]));
   const findings = [];
   const deviceStates = {};
+  const modeledDevices = nodes.filter((n) => !n.isBusAnchor);
+  const hasEnvironment = rooms.length > 0 || barriers.length > 0 || vlanZones.length > 0 || powerZones.length > 0;
+
+  if (modeledDevices.length === 0 && hasEnvironment) {
+    findings.push({
+      id: 'environment_without_devices',
+      severity: 'medium',
+      title: 'No network devices placed',
+      detail: 'The canvas only contains environment elements. Add devices and links before treating these insights as a validated network design.',
+      nodeIds: [],
+      linkIds: [],
+      whyLines: ['Rooms, barriers, or zones exist, but there are no modeled devices to evaluate.'],
+      suggestions: ['Add a router/firewall, switches, endpoints, and access points as needed', 'Connect devices before reviewing coverage, capacity, and resilience'],
+      autoFix: null,
+    });
+  }
 
   const lanReach = nodesReachLan(nodes, links, excludeNodeId, excludeLinkId, rawBarriers);
   const wanReach = nodesReachWan(nodes, links, excludeNodeId, excludeLinkId, rawBarriers);
@@ -2291,7 +2307,16 @@ export function computeSmartTopology({
   const pduCount = nodes.filter(n => n.type === 'pdu').length;
   const power = Math.min(100, 55 + pduCount * 15);
 
-  const overallScores = {
+  const draftOnlyScores = modeledDevices.length === 0 && hasEnvironment
+    ? {
+        coverage: rooms.length ? 15 : 0,
+        capacity: 0,
+        security: 0,
+        resilience: 0,
+        power: powerZones.length ? 20 : 0,
+      }
+    : null;
+  const overallScores = draftOnlyScores || {
     coverage: Math.min(100, coverage),
     capacity: Math.min(100, capacity),
     security: Math.min(100, security),
@@ -2478,7 +2503,7 @@ export function computeSmartTopology({
     unprotectedWanLinkIds,
     apClients,
     vlanZones,
-    meta: { nodeCount: nodes.length, linkCount: links.length, positiveHints },
+    meta: { nodeCount: nodes.length, linkCount: links.length, positiveHints, hasEnvironment, designPhase: draftOnlyScores ? 'environment_only' : 'modeled' },
   };
 }
 

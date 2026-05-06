@@ -55,6 +55,7 @@ function buildInsights(nodes, links, vlans) {
   const wiredLinks = links.length - wirelessLinks;
 
   const risks = [];
+  if (nodes.length === 0) risks.push('Add network devices before reviewing design health.');
   if (!typeCounts.firewall && nodes.length > 2) risks.push('No firewall is protecting the edge.');
   if (disconnected.length) risks.push(`${disconnected.length} device${disconnected.length > 1 ? 's are' : ' is'} disconnected.`);
   if (nodes.length > 5 && vlans.length === 0) risks.push('No VLANs defined for network segmentation.');
@@ -63,6 +64,7 @@ function buildInsights(nodes, links, vlans) {
   if (!risks.length) risks.push('Core structure looks ready for review.');
 
   const moves = [];
+  if (nodes.length === 0) moves.push('Place the first router, firewall, switch, or endpoint.');
   if (!typeCounts.firewall && nodes.length > 2) moves.push('Place a firewall between WAN and core.');
   if (vlans.length === 0 && nodes.length > 5) moves.push('Create user, guest, server, and operations VLANs.');
   if (!links.some(link => link.type === 'fiber') && nodes.length > 8) moves.push('Use fiber for core or distribution uplinks.');
