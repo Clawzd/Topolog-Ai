@@ -384,7 +384,9 @@ const TIDY_TYPE_RANK = {
  * compact centred grid per room keeps spokes short and parallel.
  */
 function tidyNodesByRoom(nodes, rooms, offsetX, offsetY, prebucketed = null) {
-  if (!rooms || !rooms.length || !nodes || !nodes.length) return nodes;
+  if (!rooms || !rooms.length || !nodes || !nodes.length) {
+    return { nodes, rooms: rooms || [] };
+  }
 
   const translatedRooms = rooms.map((r) => ({
     ...r,
@@ -415,9 +417,10 @@ function tidyNodesByRoom(nodes, rooms, offsetX, offsetY, prebucketed = null) {
   }
 
   const next = nodes.map((n) => ({ ...n }));
+  const sizedRooms = translatedRooms.map((r) => ({ ...r }));
 
-  for (let ri = 0; ri < translatedRooms.length; ri += 1) {
-    const room = translatedRooms[ri];
+  for (let ri = 0; ri < sizedRooms.length; ri += 1) {
+    const room = sizedRooms[ri];
     const roomNodes = next.filter((n) => roomIdxByNode.get(n.id) === ri);
     if (!roomNodes.length) continue;
 
@@ -430,17 +433,23 @@ function tidyNodesByRoom(nodes, rooms, offsetX, offsetY, prebucketed = null) {
 
     const cellW = NODE_W + NODE_PAD;
     const cellH = NODE_H + NODE_PAD;
-    const innerW = Math.max(NODE_W, room.w - ROOM_PAD * 2);
-    // Pick a column count that keeps the grid roughly square but fits the room.
-    const colsByRoom = Math.max(1, Math.floor((innerW + NODE_PAD) / cellW));
-    const colsBySqrt = Math.max(1, Math.ceil(Math.sqrt(roomNodes.length)));
-    const cols = Math.max(1, Math.min(colsByRoom, colsBySqrt));
+    // Aim for a roughly square grid sized to the bucket. Ignore the AI's
+    // emitted room width — we grow the room below to fit the grid instead of
+    // squeezing the grid into a too-small rectangle.
+    const cols = Math.max(1, Math.ceil(Math.sqrt(roomNodes.length)));
     const rows = Math.ceil(roomNodes.length / cols);
 
     const gridW = cols * cellW - NODE_PAD;
     const gridH = rows * cellH - NODE_PAD;
-    const startX = Math.round(room.x + Math.max(ROOM_PAD, (room.w - gridW) / 2));
-    const startY = Math.round(room.y + Math.max(ROOM_PAD, (room.h - gridH) / 2));
+
+    // Grow the room (anchored at its top-left) so the grid plus padding fits.
+    const requiredW = Math.max(MIN_ROOM_W, gridW + ROOM_PAD * 2);
+    const requiredH = Math.max(MIN_ROOM_H, gridH + ROOM_PAD * 2);
+    if (requiredW > room.w) room.w = requiredW;
+    if (requiredH > room.h) room.h = requiredH;
+
+    const startX = Math.round(room.x + (room.w - gridW) / 2);
+    const startY = Math.round(room.y + (room.h - gridH) / 2);
 
     roomNodes.forEach((node, i) => {
       node.x = startX + (i % cols) * cellW;
@@ -448,7 +457,7 @@ function tidyNodesByRoom(nodes, rooms, offsetX, offsetY, prebucketed = null) {
     });
   }
 
-  return next;
+  return { nodes: next, rooms: sizedRooms };
 }
 
 /**
@@ -512,27 +521,62 @@ export function applySmartLayout(topology, mapState = {}) {
     roomIdxByNode.set(node.id, idx);
   }
 
-  // Adopt roomless endpoints (phones, printers, cameras, etc.) into the room
-  // of any neighbor they're linked to — the AI often places these near their
-  // workstation but outside the room rectangle, leaving them stranded.
-  const ENDPOINT_TYPES = new Set(['pc', 'laptop', 'phone', 'printer', 'camera', 'tablet', 'iot', 'smarttv', 'nas', 'server']);
+  // Bucket roomless nodes by label-match: e.g. "AP - Reception" → Reception
+  // room, "Workstation - Open Office 3" → Open Office. The AI is required to
+  // emit room-tagged labels (see promptTopologyGenerator), and this catches
+  // cases where it placed the node just outside the room rectangle.
+  if (translatedAiRooms.length > 0) {
+    const roomLabelTokens = translatedAiRooms.map((r) => labelWords(r.label));
+    for (const node of topology.nodes) {
+      if (node.isBusAnchor) continue;
+      if ((roomIdxByNode.get(node.id) ?? -1) >= 0) continue;
+      const nodeTokens = labelWords(node.label);
+      if (!nodeTokens.length) continue;
+      let bestIdx = -1;
+      let bestScore = 0;
+      for (let i = 0; i < roomLabelTokens.length; i += 1) {
+        const tokens = roomLabelTokens[i];
+        if (!tokens.length) continue;
+        const score = tokens.filter((w) => nodeTokens.includes(w)).length;
+        if (score > bestScore) {
+          bestScore = score;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx >= 0) roomIdxByNode.set(node.id, bestIdx);
+    }
+  }
+
+  // Adopt roomless endpoints into the room of any neighbor they're linked to.
+  // Includes APs and switches because the AI sometimes places the room's
+  // switch outside the rectangle, breaking the chain that pulls endpoints in.
+  const ADOPT_TYPES = new Set(['pc', 'laptop', 'phone', 'printer', 'camera', 'tablet', 'iot', 'smarttv', 'nas', 'server', 'ap', 'switch']);
   if (translatedAiRooms.length > 0) {
     const links = topology.links || [];
     // Iterate a few times so adopted nodes can adopt their own neighbors.
-    for (let pass = 0; pass < 3; pass += 1) {
+    for (let pass = 0; pass < 5; pass += 1) {
       let changed = false;
       for (const node of topology.nodes) {
-        if (!ENDPOINT_TYPES.has(node.type)) continue;
+        if (!ADOPT_TYPES.has(node.type)) continue;
         if ((roomIdxByNode.get(node.id) ?? -1) >= 0) continue;
-        let adopted = -1;
+        // Tally neighbor rooms; pick the most common so a switch surrounded by
+        // 9 Open Office laptops + 1 cross-room link still lands in Open Office.
+        const counts = new Map();
         for (const link of links) {
           const other = link.source === node.id ? link.target : link.target === node.id ? link.source : null;
           if (!other) continue;
           const otherIdx = roomIdxByNode.get(other) ?? -1;
-          if (otherIdx >= 0) { adopted = otherIdx; break; }
+          if (otherIdx < 0) continue;
+          counts.set(otherIdx, (counts.get(otherIdx) || 0) + 1);
         }
-        if (adopted >= 0) {
-          roomIdxByNode.set(node.id, adopted);
+        if (!counts.size) continue;
+        let bestIdx = -1;
+        let bestCount = 0;
+        for (const [idx, count] of counts) {
+          if (count > bestCount) { bestCount = count; bestIdx = idx; }
+        }
+        if (bestIdx >= 0) {
+          roomIdxByNode.set(node.id, bestIdx);
           changed = true;
         }
       }
@@ -558,12 +602,16 @@ export function applySmartLayout(topology, mapState = {}) {
 
   // Re-grid nodes inside their AI-assigned rooms before sizing those rooms,
   // so the room bounds end up tight around a clean grid instead of around the
-  // AI's scattered coordinates.
-  const tidiedNodes = tidyNodesByRoom(adjustedNodes, aiRooms, offsetX, offsetY, roomIdxByNode);
+  // AI's scattered coordinates. tidyNodesByRoom also grows each room to fit
+  // its bucket so workstations don't spill below the rectangle.
+  const tidied = tidyNodesByRoom(adjustedNodes, aiRooms, offsetX, offsetY, roomIdxByNode);
+  const tidiedNodes = tidied.nodes;
+  const tidiedRooms = tidied.rooms;
 
-  // Auto-size rooms to fit their contained devices, and move their nodes with
-  // them when the separation pass shifts a room.
-  const sizing = autoSizeRooms(topology.rooms, tidiedNodes, offsetX, offsetY);
+  // Tighten rooms around the gridded nodes and push overlapping rooms apart,
+  // moving their bucketed nodes alongside. We pass the intent-based buckets
+  // so a node placed slightly outside its room's rectangle still counts.
+  const sizing = autoSizeRooms(tidiedRooms, tidiedNodes, roomIdxByNode);
   const adjustedRooms = sizing.rooms;
   const sizedNodes = sizing.nodes;
 
@@ -663,28 +711,34 @@ function repairOrphanEndpoints(links, nodes, roomIdxByNode) {
  * that room's original bounds, so unrelated core gear does not get absorbed.
  * After sizing, a separation pass pushes any still-overlapping rooms apart.
  */
-function autoSizeRooms(rooms, adjustedNodes, offsetX, offsetY) {
+function autoSizeRooms(rooms, adjustedNodes, roomIdxByNode = null) {
   if (!rooms || rooms.length === 0) return { rooms: [], nodes: adjustedNodes };
 
-  // Translate room origins to canvas coordinates.
-  const rects = rooms.map(room => ({
-    ...room,
-    x: room.x + offsetX,
-    y: room.y + offsetY,
-  }));
+  // Rooms come in already translated to canvas coordinates from tidy.
+  const rects = rooms.map(room => ({ ...room }));
 
-  // Build a centre point for each room (used for proximity assignment).
+  // Build a centre point for each room (used for proximity assignment when
+  // we don't have intent-based buckets to fall back on).
   const centers = rects.map(r => ({ cx: r.x + r.w / 2, cy: r.y + r.h / 2 }));
 
-  // Exclusively assign each node to a room only when the original room bounds
-  // claim it. LLMs can emit broad or uneven rooms, so nearest-room fallback
-  // makes labels like "Student Lab" accidentally absorb unrelated core gear.
+  // Bucket nodes by INTENT when caller supplied a map; otherwise fall back to
+  // geometric containment. Intent-based bucketing matters because tidy may
+  // have placed a grid that extends past the AI's emitted rectangle, and we
+  // want the room to grow around the grid rather than abandon those nodes.
   const buckets = rects.map(() => []);
   for (const n of adjustedNodes) {
     if (n.isBusAnchor) continue; // bus anchors are invisible; don't pull rooms
+
+    if (roomIdxByNode instanceof Map) {
+      const idx = roomIdxByNode.get(n.id);
+      if (typeof idx === 'number' && idx >= 0 && idx < buckets.length) {
+        buckets[idx].push(n);
+      }
+      continue;
+    }
+
     const cx = n.x + NODE_W / 2;
     const cy = n.y + NODE_H / 2;
-
     // Rooms that actually contain the node centre
     const containing = rects
       .map((r, i) => ({ i, inside: cx >= r.x - ROOM_CLAIM_PAD && cx <= r.x + r.w + ROOM_CLAIM_PAD && cy >= r.y - ROOM_CLAIM_PAD && cy <= r.y + r.h + ROOM_CLAIM_PAD }))
@@ -975,7 +1029,7 @@ function normalizeStrictBusTopology(topology, prompt = '') {
       w: Math.max(MIN_ROOM_W, busBounds.maxX - busBounds.minX + BUS_ROOM_PAD_X * 2),
       h: Math.max(MIN_ROOM_H, busBounds.maxY - busBounds.minY + BUS_ROOM_PAD_Y * 2),
     }]
-    : autoSizeRooms(topology.rooms || [], normalizedNodes, 0, 0);
+    : autoSizeRooms((topology.rooms || []).map((r) => ({ ...r })), normalizedNodes);
 
   return {
     ...topology,
