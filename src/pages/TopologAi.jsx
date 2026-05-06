@@ -99,7 +99,9 @@ export default function TopologAi() {
   const [highlightVlan, setHighlightVlan] = useState(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(true);
   const [componentsPanelOpen, setComponentsPanelOpen] = useState(true);
-  const [propsPanelOpen, setPropsPanelOpen] = useState(true);
+  // Properties panel stays closed until the user right-clicks an item, so a
+  // simple left-click selects without slamming the panel open every time.
+  const [propsPanelOpen, setPropsPanelOpen] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
   const [showVlanManager, setShowVlanManager] = useState(false);
@@ -1025,7 +1027,12 @@ export default function TopologAi() {
 
   const handleContextMenuRequest = (x, y, target) => {
     setContextMenu({ x, y, target });
-    if (target.id) setSelectedId(target.id);
+    if (target.id) {
+      setSelectedId(target.id);
+      // Right-click is the gesture that opens the properties panel; a plain
+      // left-click only selects.
+      setPropsPanelOpen(true);
+    }
   };
 
   const handleContextMenuAction = (action) => {
