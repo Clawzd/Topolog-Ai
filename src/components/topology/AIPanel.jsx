@@ -360,9 +360,9 @@ const AIPanel = forwardRef(
               }
             }}
             placeholder={hasTopology ? 'Refine: add a DMZ, change WiFi coverage…' : 'Describe your space…'}
-            rows={9}
+            rows={14}
             maxLength={4000}
-            className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary resize-y leading-relaxed min-h-[180px]"
+            className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary resize-y leading-relaxed min-h-[280px]"
           />
           <div className="flex items-center justify-end mt-1">
             <span className="text-[9px] font-mono text-muted-foreground">{prompt.length} / 4000</span>
