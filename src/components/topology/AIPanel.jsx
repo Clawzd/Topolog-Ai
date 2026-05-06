@@ -359,7 +359,7 @@ const AIPanel = forwardRef(
                 handleSubmit(e);
               }
             }}
-            placeholder={hasTopology ? 'Refine: add a DMZ, change WiFi coverage…' : 'Describe your space, e.g.: 3 rooms — server room, open office with 15 workstations, meeting room. Thick concrete walls. Need full WiFi coverage and camera monitoring.'}
+            placeholder={hasTopology ? 'Refine: add a DMZ, change WiFi coverage…' : 'Describe your space…'}
             rows={5}
             maxLength={4000}
             className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary resize-none leading-relaxed"
