@@ -181,7 +181,6 @@ export default function NetworkInsightsPanel({
     coverage: validation.score,
     capacity: validation.score,
     security: validation.score,
-    resilience: validation.score,
     power: validation.score,
   };
   const overall = smartSnapshot?.overallScore ?? validation.score;
@@ -210,7 +209,6 @@ export default function NetworkInsightsPanel({
 
   const coverageTier = scores.coverage >= 72 ? 'High' : scores.coverage >= 45 ? 'Medium' : 'Low';
   const costTier = mergedFindings.length < 4 ? 'Low' : mergedFindings.length < 10 ? 'Medium' : 'High';
-  const redundancyTier = scores.resilience >= 68 ? 'High' : scores.resilience >= 42 ? 'Medium' : 'Low';
 
   const bar = (label, v) => (
     <div key={label} className="space-y-0.5">
@@ -257,7 +255,6 @@ export default function NetworkInsightsPanel({
               {bar('Coverage', scores.coverage)}
               {bar('Capacity', scores.capacity)}
               {bar('Security', scores.security)}
-              {bar('Resilience', scores.resilience)}
               {bar('Power', scores.power)}
             </div>
           </div>
@@ -365,7 +362,6 @@ export default function NetworkInsightsPanel({
             <p className="text-[9px] text-muted-foreground leading-snug">
               Coverage: <span className="text-foreground/90">{coverageTier}</span>
               {' · '}Cost: <span className="text-foreground/90">{costTier}</span>
-              {' · '}Redundancy: <span className="text-foreground/90">{redundancyTier}</span>
             </p>
             {scoreDelta !== 0 && (
               <div className={`text-[10px] font-mono ${scoreDelta > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -380,7 +376,6 @@ export default function NetworkInsightsPanel({
               {bar('Coverage', scores.coverage)}
               {bar('Capacity', scores.capacity)}
               {bar('Security', scores.security)}
-              {bar('Resilience', scores.resilience)}
               {bar('Power', scores.power)}
             </div>
           </div>

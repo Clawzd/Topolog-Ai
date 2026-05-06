@@ -336,7 +336,6 @@ export function generateDesignBrief(payload, smartSnapshot = null) {
           `- Coverage: ${Math.round(smartSnapshot.overallScores?.coverage ?? 0)}`,
           `- Capacity: ${Math.round(smartSnapshot.overallScores?.capacity ?? 0)}`,
           `- Security: ${Math.round(smartSnapshot.overallScores?.security ?? 0)}`,
-          `- Resilience: ${Math.round(smartSnapshot.overallScores?.resilience ?? 0)}`,
           `- Power: ${Math.round(smartSnapshot.overallScores?.power ?? 0)}`,
           `- Overall: ${smartSnapshot.overallScore ?? validation.score}`,
           '',

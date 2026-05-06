@@ -750,7 +750,7 @@ export function computeSmartTopology({
       nodeIds: [],
       linkIds: [],
       whyLines: ['Rooms, barriers, or zones exist, but there are no modeled devices to evaluate.'],
-      suggestions: ['Add a router/firewall, switches, endpoints, and access points as needed', 'Connect devices before reviewing coverage, capacity, and resilience'],
+      suggestions: ['Add a router/firewall, switches, endpoints, and access points as needed', 'Connect devices before reviewing coverage and capacity'],
       autoFix: null,
     });
   }
@@ -2292,18 +2292,6 @@ export function computeSmartTopology({
   const coverage = Math.round(avgQ);
   const capacity = Math.max(0, 100 - bottleneckLinks.filter(b => b.utilization > 80).length * 12 - coChanPairs.length * 8);
   const security = Math.max(0, 100 - findings.filter(f => f.title.includes('firewall') || f.title.includes('public') || f.title.includes('VLAN')).length * 15);
-  const resilience = Math.max(
-    0,
-    100 -
-      findings.filter(
-        (f) =>
-          f.title.includes('Single point') ||
-          f.title.includes('Isolated') ||
-          f.title.includes('single point of failure') ||
-          f.title.includes('without WAN path'),
-      ).length *
-        12,
-  );
   const pduCount = nodes.filter(n => n.type === 'pdu').length;
   const power = Math.min(100, 55 + pduCount * 15);
 
@@ -2312,7 +2300,6 @@ export function computeSmartTopology({
         coverage: rooms.length ? 15 : 0,
         capacity: 0,
         security: 0,
-        resilience: 0,
         power: powerZones.length ? 20 : 0,
       }
     : null;
@@ -2320,16 +2307,19 @@ export function computeSmartTopology({
     coverage: Math.min(100, coverage),
     capacity: Math.min(100, capacity),
     security: Math.min(100, security),
-    resilience: Math.min(100, resilience),
     power: Math.min(100, power),
   };
-  const overall = Math.round(
+  const rawOverall = Math.round(
     overallScores.coverage * 0.28 +
-    overallScores.capacity * 0.22 +
-    overallScores.security * 0.2 +
-    overallScores.resilience * 0.18 +
-    overallScores.power * 0.12
+    overallScores.capacity * 0.26 +
+    overallScores.security * 0.26 +
+    overallScores.power * 0.2
   );
+  const severityPenalty = findings.reduce(
+    (sum, finding) => sum + ({ high: 18, medium: 10, low: 4 }[finding.severity] || 0),
+    0,
+  );
+  const overall = Math.max(0, rawOverall - severityPenalty);
 
   const apSuggestions = computeApGhostSuggestions(nodes, rooms, barriers, deviceStates, aps);
 
