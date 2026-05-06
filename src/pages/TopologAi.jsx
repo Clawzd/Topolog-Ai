@@ -1025,6 +1025,11 @@ export default function TopologAi() {
     setLinks(l => l.map(x => x.id === id ? { ...x, ...data } : x));
   };
 
+  const handleCanvasSelectionChange = useCallback((id) => {
+    setSelectedId(id);
+    setPropsPanelOpen(false);
+  }, []);
+
   const handleContextMenuRequest = (x, y, target) => {
     // Right-click no longer pops the small Rename/Delete context menu —
     // the properties panel covers every action it offered (and more), so
@@ -1903,7 +1908,7 @@ export default function TopologAi() {
             onVlanZoneAdd={handleVlanZoneAdd}
             onPowerZoneAdd={handlePowerZoneAdd}
             onGhostApPlace={handleGhostApPlace}
-            selectedId={selectedId} setSelectedId={setSelectedId}
+            selectedId={selectedId} setSelectedId={handleCanvasSelectionChange}
             selectedIds={selectedIds} onMultiSelect={setSelectedIds}
             mode={mode} setMode={setMode}
             placementType={placementType}
