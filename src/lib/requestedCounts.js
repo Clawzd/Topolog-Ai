@@ -59,50 +59,16 @@ function parseCountToken(token) {
   return WORD_NUMBERS[token] ?? null;
 }
 
-// Words that can sit between a count and the device noun without changing
-// the type, e.g. "1 core switch", "12 desktop PCs", "4 distribution switches",
-// "2 redundant routers". Anything outside this list bails the match so we
-// don't accidentally bridge unrelated phrases like "5 staff use 2 laptops".
-const ADJECTIVE_FILLERS = new Set([
-  'core', 'distribution', 'access', 'edge', 'redundant', 'extra', 'spare',
-  'desktop', 'desktops', 'modern', 'small', 'large', 'mobile', 'fixed',
-  'guest', 'mesh', 'wifi', 'wi-fi', 'wireless', 'wired', 'managed', 'unmanaged',
-  'security', 'ip', 'voip', 'pos', 'student', 'faculty', 'admin', 'office',
-  'hot-desk', 'hotdesk', 'shared', 'dedicated', 'private', 'public',
-]);
-
 function collectTypeCounts(text) {
   const perType = {};
-  // Track which (count-token start position, type) pairs we've already
-  // credited, so a phrase like "15 desktop workstations" — which matches
-  // BOTH the `desktop` and `workstations` aliases of `pc` — counts once.
-  const claimed = new Set();
   for (const [type, aliases] of Object.entries(DEVICE_TYPE_ALIASES)) {
-    // Try longest aliases first so "workstations" beats "desktop" when both
-    // would match the same number.
-    const sorted = [...aliases].sort((a, b) => b.length - a.length);
-    for (const alias of sorted) {
-      // Match a count followed by 0-3 adjective words, then the alias. Each
-      // intermediate word must be in ADJECTIVE_FILLERS so we don't bridge
-      // unrelated clauses.
-      const re = new RegExp(
-        `\\b(\\d+|${Object.keys(WORD_NUMBERS).join('|')})((?:\\s+[a-z][\\w-]*){0,3})\\s+${escapeRegex(alias)}\\b`,
-        'gi',
-      );
+    for (const alias of aliases) {
+      const re = new RegExp(`\\b(\\d+|${Object.keys(WORD_NUMBERS).join('|')})\\s+${escapeRegex(alias)}\\b`, 'gi');
       let m = re.exec(text);
       while (m) {
-        const middleTokens = (m[2] || '').trim().split(/\s+/).filter(Boolean);
-        const middleOk = middleTokens.every((w) => ADJECTIVE_FILLERS.has(w.toLowerCase()));
-        const key = `${type}@${m.index}`;
-        if (middleOk && !claimed.has(key)) {
-          claimed.add(key);
-          const count = parseCountToken(m[1]?.toLowerCase());
-          if (Number.isFinite(count) && count > 0) {
-            // Sum repeated mentions so per-room counts add up, e.g.
-            // "6 laptops … 4 laptops" → 10 total. Previously used Math.max
-            // which collapsed multi-room device requests.
-            perType[type] = (perType[type] || 0) + count;
-          }
+        const count = parseCountToken(m[1]?.toLowerCase());
+        if (Number.isFinite(count) && count > 0) {
+          perType[type] = Math.max(perType[type] || 0, count);
         }
         m = re.exec(text);
       }
