@@ -1026,11 +1026,11 @@ export default function TopologAi() {
   };
 
   const handleContextMenuRequest = (x, y, target) => {
-    setContextMenu({ x, y, target });
+    // Right-click no longer pops the small Rename/Delete context menu —
+    // the properties panel covers every action it offered (and more), so
+    // we only select + open the panel.
     if (target.id) {
       setSelectedId(target.id);
-      // Right-click is the gesture that opens the properties panel; a plain
-      // left-click only selects.
       setPropsPanelOpen(true);
     }
   };
