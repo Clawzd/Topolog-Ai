@@ -47,8 +47,6 @@ const TOTAL_COUNT_NOUNS = [
   'clients',
 ];
 
-const INFRA_PRIORITY = new Set(['cloud', 'router', 'firewall', 'switch', 'loadbalancer', 'pdu', 'patchpanel']);
-
 function escapeRegex(v) {
   return v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -98,13 +96,6 @@ export function parseRequestedCountSpec(promptText) {
     totalCount,
     perType,
   };
-}
-
-function nodeRemovalRank(node, index) {
-  const type = String(node?.type || '');
-  const infraPenalty = INFRA_PRIORITY.has(type) ? 1000 : 0;
-  const endpointBias = ['pc', 'laptop', 'tablet', 'phone', 'printer', 'camera', 'iot'].includes(type) ? 0 : 100;
-  return infraPenalty + endpointBias + index;
 }
 
 function topologyBounds(nodes) {
@@ -251,11 +242,10 @@ export function enforceRequestedCounts(topology, spec, promptText = '') {
   const barriers = [...(topology.barriers || [])];
   const barrierIds = new Set(barriers.map((b) => b.id));
 
-  const removeNodeIds = new Set();
   const addNodes = [];
   const addLinks = [];
 
-  const byType = (type) => nodes.filter((n) => n.type === type && !removeNodeIds.has(n.id));
+  const byType = (type) => nodes.filter((n) => n.type === type);
 
   // Synthesize new endpoints inside the most relevant room so they don't end
   // up stranded below the topology with `Local only` tags. Pick the room that
@@ -264,7 +254,7 @@ export function enforceRequestedCounts(topology, spec, promptText = '') {
   // fit the expanded grid.
   const synthesizeInto = (count, type, startSeq) => {
     if (count <= 0) return [];
-    const candidatesNow = nodes.concat(addNodes).filter((n) => !removeNodeIds.has(n.id));
+    const candidatesNow = nodes.concat(addNodes);
     const host = pickHostRoom(rooms, candidatesNow, type);
     let labelPrefix = null;
     if (host?.room?.label) {
@@ -312,38 +302,27 @@ export function enforceRequestedCounts(topology, spec, promptText = '') {
     return created;
   };
 
+  // Only fill in shortfalls — never trim what the AI emitted. Caps were
+  // deleting devices the user explicitly asked for (e.g. "6 laptops … 4
+  // laptops" wrongly capped at 6, removing the second-room laptops). Keep
+  // exactly what the user requested as a minimum and let any extras through.
   for (const [type, target] of Object.entries(spec.perType || {})) {
     const candidates = byType(type);
-    if (candidates.length > target) {
-      const extras = [...candidates]
-        .map((n, i) => ({ n, rank: nodeRemovalRank(n, i) }))
-        .sort((a, b) => b.rank - a.rank)
-        .slice(0, candidates.length - target);
-      extras.forEach(({ n }) => removeNodeIds.add(n.id));
-    } else if (candidates.length < target) {
+    if (candidates.length < target) {
       const missing = target - candidates.length;
       const created = synthesizeInto(missing, type, candidates.length);
       addNodes.push(...created);
     }
   }
 
-  nodes = nodes.filter((n) => !removeNodeIds.has(n.id)).concat(addNodes);
+  nodes = nodes.concat(addNodes);
 
-  if (Number.isFinite(spec.totalCount)) {
-    if (nodes.length > spec.totalCount) {
-      const removable = nodes
-        .map((n, i) => ({ n, rank: nodeRemovalRank(n, i) }))
-        .sort((a, b) => b.rank - a.rank)
-        .slice(0, nodes.length - spec.totalCount);
-      const extraIds = new Set(removable.map(({ n }) => n.id));
-      nodes = nodes.filter((n) => !extraIds.has(n.id));
-    } else if (nodes.length < spec.totalCount) {
-      const fallbackType = Object.keys(spec.perType || {})[0] || 'pc';
-      const missing = spec.totalCount - nodes.length;
-      const start = nodes.length;
-      const created = synthesizeInto(missing, fallbackType, start);
-      nodes = nodes.concat(created);
-    }
+  if (Number.isFinite(spec.totalCount) && nodes.length < spec.totalCount) {
+    const fallbackType = Object.keys(spec.perType || {})[0] || 'pc';
+    const missing = spec.totalCount - nodes.length;
+    const start = nodes.length;
+    const created = synthesizeInto(missing, fallbackType, start);
+    nodes = nodes.concat(created);
   }
 
   // Concat all synthesized links once nodes are settled (synthesizeInto
